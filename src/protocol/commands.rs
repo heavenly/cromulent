@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-use super::types::{AskUserResponse, ModelInfo, ThinkingLevel};
+use super::types::{AskUserResponse, ThinkingLevel};
 
 /// Incoming command from the client over stdin
 #[derive(Debug, Clone, Deserialize)]
@@ -71,6 +71,8 @@ pub enum ClientCommand {
     Shutdown {
         id: Option<String>,
     },
+    #[serde(other)]
+    Invalid,
 }
 
 /// Envelope wrapping a client command

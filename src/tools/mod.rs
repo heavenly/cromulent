@@ -7,6 +7,14 @@ pub mod grep;
 pub mod find;
 pub mod ask_user;
 
+pub use read::ReadTool;
+pub use write::WriteTool;
+pub use edit::EditTool;
+pub use grep::GrepTool;
+pub use find::FindTool;
+pub use bash::BashTool;
+pub use ask_user::AskUserTool;
+
 use thiserror::Error;
 
 /// Structured errors from tool execution.

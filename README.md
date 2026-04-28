@@ -133,6 +133,20 @@ while all stream output arrives as events.
   - OpenAI: `OPENAI_API_KEY` environment variable
   - DeepSeek: `DEEPSEEK_API_KEY` environment variable
 
+### Environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `OPENAI_API_KEY` | Auth for the OpenAI Responses API adapter |
+| `OPENAI_BASE_URL` | Optional OpenAI Responses API endpoint override |
+| `DEEPSEEK_API_KEY` | Auth for the DeepSeek-compatible adapter |
+| `DEEPSEEK_BASE_URL` | Optional DeepSeek chat completions endpoint override |
+| `CODEX_ACCESS_TOKEN` | Seeds `auth/codex.json` when using `--setup-codex` |
+| `CODEX_REFRESH_TOKEN` | Optional refresh token stored by `--setup-codex` |
+| `CODEX_EXPIRES_AT` | Optional ISO 8601 expiry stored by `--setup-codex` |
+| `CROMULENT_FAKE_RESPONSE` | Script default fake provider text |
+| `CROMULENT_FAKE_DELAY_MS` | Add delay to fake provider chunks |
+
 ### Build
 
 ```bash
@@ -144,11 +158,12 @@ cargo build --release
 ### Run
 
 ```bash
-# Using the fake provider (no API key needed — echoes placeholder text)
+# Using configured defaults (config file + CLI overrides)
 cargo run
 
 # Start with a specific model/provider
-cargo run -- --provider openai --model gpt-5-codex
+OPENAI_API_KEY=sk-... cargo run -- --provider openai --model gpt-4o
+DEEPSEEK_API_KEY=sk-... cargo run -- --provider deepseek --model deepseek-chat
 
 # Load an existing session
 cargo run -- --session ses_abc123
@@ -159,8 +174,11 @@ cargo run -- --thinking high
 # Custom working directory
 cargo run -- --cwd /path/to/project
 
-# Custom sessions directory
-cargo run -- --sessions-dir /tmp/my-sessions
+# Custom sessions and config paths
+cargo run -- --sessions-dir /tmp/my-sessions --config /tmp/cromulent-config.json
+
+# Seed Codex credentials from env vars
+CODEX_ACCESS_TOKEN=... cargo run -- --setup-codex
 ```
 
 ### CLI options
@@ -175,11 +193,37 @@ Options:
                                  Thinking level
       --session <SESSION_ID>     Session ID to load on startup
       --cwd <PATH>               Working directory (default: current dir)
-      --max-turns <N>            Maximum turns per agent run [default: 40]
+      --max-turns <N>            Maximum turns per agent run
       --sessions-dir <PATH>      Directory for session persistence
-      --setup-codex              Run codex auth setup and exit (placeholder)
+      --config <PATH>            Config file path (default: ~/.config/cromulent/config.json)
+      --setup-codex              Seed Codex credential cache from CODEX_* env vars and exit
   -h, --help                     Print help
   -V, --version                  Print version
+```
+
+### Configuration
+
+On startup, `cromulent` loads `~/.config/cromulent/config.json` (or `--config <path>`) and then applies CLI overrides.
+
+Example config:
+
+```json
+{
+  "providers": {
+    "openai": { "apiKeyEnv": "OPENAI_API_KEY", "defaultModel": "gpt-4o" },
+    "deepseek": { "apiKeyEnv": "DEEPSEEK_API_KEY", "defaultModel": "deepseek-chat" }
+  },
+  "defaultModel": {
+    "provider": "openai",
+    "id": "gpt-4o",
+    "displayName": "GPT-4o",
+    "contextWindow": 128000,
+    "supportsReasoning": false,
+    "supportsTools": true
+  },
+  "thinkingLevel": "medium",
+  "maxTurns": 40
+}
 ```
 
 ### Session persistence
@@ -215,7 +259,10 @@ cargo test -- --nocapture
 | `tests/sessions.rs` | 13 integration tests for session create/load/update/fork |
 | `tests/ask_user_flow.rs` | 9 tests for pending ask register/resolve/cancel |
 | `tests/cancellation.rs` | 12 tests for cancellation token and state transitions |
-| `lib unit tests` | 23 tests across agent, auth, session modules |
+| `tests/providers.rs` | 17 tests for provider managers/adapters without live network |
+| `tests/config_merge.rs` | 16 tests for config loading and CLI merge behavior |
+| `tests/tools.rs` | 33 unit tests for built-in tools |
+| `lib unit tests` | 46 tests across agent, auth, provider, session modules |
 
 ## Tools
 
@@ -235,12 +282,13 @@ The agent has access to these built-in tools:
 
 | Provider | Module | Status |
 |----------|--------|--------|
-| Fake (testing) | `providers/fake.rs` | ✅ Complete |
-| OpenAI Responses API | `providers/openai_responses.rs` | 🔧 Skeleton (needs `OPENAI_API_KEY`) |
-| DeepSeek Compatible | `providers/deepseek_compat.rs` | 🔧 Skeleton (needs `DEEPSEEK_API_KEY`) |
+| Fake (testing) | `providers/fake.rs` | ✅ Complete, scriptable for tests |
+| OpenAI Responses API | `providers/openai_responses.rs` | ✅ Streaming adapter implemented (`OPENAI_API_KEY`) |
+| DeepSeek Compatible | `providers/deepseek_compat.rs` | ✅ Streaming adapter implemented (`DEEPSEEK_API_KEY`) |
 
-The fake provider is used by default and can be scripted via environment
-variables for integration testing:
+Both real adapters use `reqwest`, stream SSE responses, normalize deltas into `ProviderEvent`, and defensively convert HTTP/stream failures into error events so the agent loop does not hang.
+
+The fake provider can be scripted via environment variables for integration testing:
 
 ```bash
 CROMULENT_FAKE_RESPONSE="Hello from fake!" cargo run

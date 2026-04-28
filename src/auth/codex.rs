@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -51,6 +51,11 @@ impl CredentialCache {
             schema_version: 1,
         }
     }
+}
+
+/// Default path for cached Codex credentials.
+pub fn default_credentials_path() -> PathBuf {
+    crate::util::fs::default_config_dir().join("auth").join("codex.json")
 }
 
 // ---------------------------------------------------------------------------

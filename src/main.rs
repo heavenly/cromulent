@@ -40,12 +40,16 @@ struct Cli {
     cwd: Option<PathBuf>,
 
     /// Maximum turns per agent run.
-    #[arg(long, default_value_t = 40)]
-    max_turns: u32,
+    #[arg(long)]
+    max_turns: Option<u32>,
 
     /// Directory for session persistence. Defaults to XDG data dir.
     #[arg(long)]
     sessions_dir: Option<PathBuf>,
+
+    /// Config file path. Defaults to ~/.config/cromulent/config.json.
+    #[arg(long)]
+    config: Option<PathBuf>,
 
     /// Run codex auth setup and exit.
     #[arg(long)]
@@ -64,11 +68,12 @@ async fn main() {
         )
         .init();
 
-    // --setup-codex: run auth setup and exit
+    // --setup-codex: seed a local credential cache from env vars and exit.
     if cli.setup_codex {
-        tracing::info!("Running codex auth setup...");
-        // TODO: implement actual codex auth setup
-        eprintln!("Codex auth setup is not yet implemented.");
+        if let Err(e) = setup_codex().await {
+            eprintln!("Codex auth setup failed: {e}");
+            std::process::exit(1);
+        }
         return;
     }
 
@@ -87,28 +92,32 @@ async fn main() {
         .clone()
         .unwrap_or_else(util::fs::default_sessions_dir);
 
-    // Parse thinking level from CLI string, defaulting to Medium
-    let thinking_level = match cli.thinking.as_deref() {
-        Some("low") => protocol::types::ThinkingLevel::Low,
-        Some("high") => protocol::types::ThinkingLevel::High,
-        _ => protocol::types::ThinkingLevel::Medium,
+    let config_file = match &cli.config {
+        Some(path) => auth::config::load_config(path).await,
+        None => auth::config::load_default_config().await,
+    }
+    .unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "Failed to load config, using defaults");
+        auth::config::AppConfigFile::default()
+    });
+
+    let cli_thinking = match cli.thinking.as_deref() {
+        Some("low") => Some(protocol::types::ThinkingLevel::Low),
+        Some("medium") => Some(protocol::types::ThinkingLevel::Medium),
+        Some("high") => Some(protocol::types::ThinkingLevel::High),
+        _ => None,
     };
 
-    let default_model = protocol::types::ModelInfo {
-        provider: cli.provider.clone().unwrap_or_else(|| "openai".to_string()),
-        id: cli.model.clone().unwrap_or_else(|| "gpt-4o".to_string()),
-        display_name: String::new(),
-        context_window: 128_000,
-        supports_reasoning: matches!(thinking_level, protocol::types::ThinkingLevel::High),
-        supports_tools: true,
-    };
+    let mut config = config_file.merge_with_cli(
+        cli.provider.as_deref(),
+        cli.model.as_deref(),
+        cli_thinking,
+        cli.max_turns,
+    );
+    config.sessions_dir = sessions_dir.clone();
 
-    let config = app::state::AppConfig {
-        max_turns: cli.max_turns,
-        sessions_dir: sessions_dir.clone(),
-        default_model: default_model.clone(),
-        default_thinking: thinking_level.clone(),
-    };
+    let default_model = config.default_model.clone();
+    let thinking_level = config.default_thinking.clone();
 
     // ------------------------------------------------------------------
     // Session store & session startup
@@ -217,6 +226,40 @@ async fn main() {
     let _ = writer_handle.await;
 
     tracing::info!("Shutdown complete.");
+}
+
+/// Seed the Codex credential cache from environment variables.
+async fn setup_codex() -> std::io::Result<()> {
+    let path = auth::codex::default_credentials_path();
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+
+    let access_token = match std::env::var("CODEX_ACCESS_TOKEN") {
+        Ok(token) if !token.is_empty() => token,
+        _ => {
+            eprintln!("Created Codex auth directory at {}", path.parent().unwrap_or_else(|| std::path::Path::new(".")).display());
+            eprintln!("Set CODEX_ACCESS_TOKEN and rerun `cromulent --setup-codex` to write cached credentials.");
+            eprintln!("Optional: CODEX_REFRESH_TOKEN, CODEX_EXPIRES_AT, CODEX_SCOPE");
+            return Ok(());
+        }
+    };
+
+    let expires_at = std::env::var("CODEX_EXPIRES_AT").unwrap_or_else(|_| {
+        (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339()
+    });
+
+    let credentials = auth::codex::CodexCredentials {
+        access_token,
+        refresh_token: std::env::var("CODEX_REFRESH_TOKEN").unwrap_or_default(),
+        expires_at,
+        token_type: Some("Bearer".to_string()),
+        scope: std::env::var("CODEX_SCOPE").ok(),
+    };
+    let cache = auth::codex::CredentialCache::new("codex", credentials);
+    auth::codex::save_cached_credentials(&path, &cache).await?;
+    eprintln!("Saved Codex credentials to {}", path.display());
+    Ok(())
 }
 
 /// Create a new default session and persist it to disk.

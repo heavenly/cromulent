@@ -25,6 +25,7 @@ pub struct AppRuntime {
     pub session_store: SessionStore,
     pub tool_registry: Arc<ToolRegistry>,
     pub bash_runner: std::sync::Mutex<BashRunner>,
+    pub bash_cancel: std::sync::Mutex<Option<CancellationToken>>,
     pub ask_manager: AskManagerHandle,
 }
 
@@ -43,6 +44,7 @@ impl AppRuntime {
             session_store,
             tool_registry: Arc::new(tool_registry),
             bash_runner: std::sync::Mutex::new(bash_runner),
+            bash_cancel: std::sync::Mutex::new(None),
             ask_manager,
         }
     }
@@ -128,6 +130,10 @@ impl AppRuntime {
 
     /// Handle an `abort` command.
     pub async fn handle_abort(&self, id: Option<String>) {
+        if let Some(cancel) = self.bash_cancel.lock().unwrap().take() {
+            cancel.cancel();
+        }
+
         let (run_id, cancel) = {
             let state = self.state.lock().await;
             match &state.run_state {
@@ -285,9 +291,91 @@ impl AppRuntime {
         respond(&self.output_tx, CommandResponse::ok(id));
     }
 
-    /// Handle `cycle_model` — placeholder.
+    /// Handle `cycle_model` — cycle through a small built-in model list.
     pub async fn handle_cycle_model(&self, id: Option<String>) {
-        respond(&self.output_tx, CommandResponse::err(id, "cycle_model not yet implemented"));
+        let is_running = {
+            let state = self.state.lock().await;
+            state.is_running()
+        };
+
+        if is_running {
+            respond(&self.output_tx, CommandResponse::err(id, "Cannot cycle model while a run is active. Abort first."));
+            return;
+        }
+
+        let models = vec![
+            ModelInfo {
+                provider: "fake".to_string(),
+                id: "default".to_string(),
+                display_name: "Fake".to_string(),
+                context_window: 128_000,
+                supports_reasoning: false,
+                supports_tools: true,
+            },
+            ModelInfo {
+                provider: "openai".to_string(),
+                id: "gpt-4o".to_string(),
+                display_name: "GPT-4o".to_string(),
+                context_window: 128_000,
+                supports_reasoning: false,
+                supports_tools: true,
+            },
+            ModelInfo {
+                provider: "openai".to_string(),
+                id: "gpt-5-codex".to_string(),
+                display_name: "GPT-5 Codex".to_string(),
+                context_window: 200_000,
+                supports_reasoning: true,
+                supports_tools: true,
+            },
+            ModelInfo {
+                provider: "deepseek".to_string(),
+                id: "deepseek-chat".to_string(),
+                display_name: "DeepSeek Chat".to_string(),
+                context_window: 128_000,
+                supports_reasoning: false,
+                supports_tools: true,
+            },
+        ];
+
+        let (new_model, session_id, cwd, thinking_level, header) = {
+            let mut state = self.state.lock().await;
+            let current_idx = models
+                .iter()
+                .position(|m| m.provider == state.model.provider && m.id == state.model.id)
+                .unwrap_or(0);
+            let next = models[(current_idx + 1) % models.len()].clone();
+            state.model = next.clone();
+            state.current_session.header.model = next.clone();
+            state.current_session.header.updated = now_iso();
+            (
+                next,
+                state.current_session.header.session_id.clone(),
+                state.cwd.to_string_lossy().to_string(),
+                state.thinking_level.clone(),
+                state.current_session.header.clone(),
+            )
+        };
+
+        if let Err(e) = self.session_store.update_header(&header).await {
+            respond(&self.output_tx, CommandResponse::err(id, format!("Failed to update session header: {e}")));
+            return;
+        }
+
+        emit_event(
+            &self.output_tx,
+            ServerEvent::SessionChanged {
+                session_id,
+                cwd,
+                model: new_model.clone(),
+                thinking_level,
+            },
+        );
+
+        respond(&self.output_tx, CommandResponse::ok_with_data(
+            id,
+            serde_json::json!({ "model": new_model }),
+        ));
     }
 
     /// Handle `list_sessions`.
@@ -516,7 +604,24 @@ impl AppRuntime {
 
     /// Handle `bash` command — spawn a raw shell process and stream output.
     pub async fn handle_bash(&self, id: Option<String>, command: String) {
-        match self.bash_runner.lock().unwrap().execute(&command, &self.output_tx).await {
+        let cancel = CancellationToken::new();
+        {
+            let mut slot = self.bash_cancel.lock().unwrap();
+            if slot.is_some() {
+                respond(&self.output_tx, CommandResponse::err(id, "A raw bash command is already running."));
+                return;
+            }
+            *slot = Some(cancel.clone());
+        }
+
+        let result = {
+            let runner = self.bash_runner.lock().unwrap().clone();
+            runner.execute_with_cancel(&command, &self.output_tx, cancel).await
+        };
+
+        self.bash_cancel.lock().unwrap().take();
+
+        match result {
             Ok(exit_code) => {
                 respond(&self.output_tx, CommandResponse::ok_with_data(
                     id,
@@ -527,6 +632,11 @@ impl AppRuntime {
                 respond(&self.output_tx, CommandResponse::err(id, format!("Bash execution failed: {e}")));
             }
         }
+    }
+
+    /// Handle an unrecognized command type.
+    pub async fn handle_invalid_command(&self) {
+        respond(&self.output_tx, CommandResponse::err(None, "Unrecognized command type"));
     }
 
     /// Handle `shutdown`.

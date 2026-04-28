@@ -63,5 +63,8 @@ pub async fn route_command(runtime: &AppRuntime, command: ClientCommand) {
         ClientCommand::Shutdown { id } => {
             runtime.handle_shutdown(id).await;
         }
+        ClientCommand::Invalid => {
+            runtime.handle_invalid_command().await;
+        }
     }
 }

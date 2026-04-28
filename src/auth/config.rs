@@ -88,6 +88,62 @@ impl AppConfigFile {
                 std::env::var(conventional).ok().filter(|k| !k.is_empty())
             })
     }
+
+    /// Convert this config file into an [`AppConfig`] suitable for runtime use.
+    /// Fields that are `None` in the file receive sensible defaults.
+    pub fn to_app_config(&self) -> crate::app::state::AppConfig {
+        let default_model = self
+            .default_model
+            .clone()
+            .unwrap_or_else(default_model_info);
+        let default_thinking = self.thinking_level.clone().unwrap_or(ThinkingLevel::Medium);
+        let max_turns = self.max_turns.unwrap_or(40);
+        crate::app::state::AppConfig {
+            max_turns,
+            sessions_dir: crate::util::fs::default_sessions_dir(),
+            default_model,
+            default_thinking,
+        }
+    }
+
+    /// Merge CLI overrides into a resulting [`AppConfig`].
+    ///
+    /// Any `Some` value from the CLI will replace the corresponding field.
+    pub fn merge_with_cli(
+        &self,
+        cli_provider: Option<&str>,
+        cli_model: Option<&str>,
+        cli_thinking: Option<ThinkingLevel>,
+        cli_max_turns: Option<u32>,
+    ) -> crate::app::state::AppConfig {
+        let mut cfg = self.to_app_config();
+
+        if let Some(provider) = cli_provider {
+            cfg.default_model.provider = provider.to_string();
+        }
+        if let Some(model_id) = cli_model {
+            cfg.default_model.id = model_id.to_string();
+        }
+        if let Some(tl) = cli_thinking {
+            cfg.default_thinking = tl;
+        }
+        if let Some(mt) = cli_max_turns {
+            cfg.max_turns = mt;
+        }
+
+        cfg
+    }
+}
+
+fn default_model_info() -> ModelInfo {
+    ModelInfo {
+        provider: "openai".to_string(),
+        id: "gpt-4o".to_string(),
+        display_name: "GPT-4o".to_string(),
+        context_window: 128_000,
+        supports_reasoning: false,
+        supports_tools: true,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -249,5 +305,64 @@ mod tests {
         assert_eq!(loaded.thinking_level, config.thinking_level);
         assert!(loaded.providers.contains_key("openai"));
         assert!(loaded.providers.contains_key("deepseek"));
+    }
+
+    #[test]
+    fn test_to_app_config() {
+        use crate::app::state::AppConfig;
+        use crate::protocol::types::ThinkingLevel;
+
+        let config_file = AppConfigFile::default();
+        let app_config: AppConfig = config_file.to_app_config();
+
+        assert_eq!(app_config.max_turns, 40);
+        assert_eq!(app_config.default_thinking, ThinkingLevel::Medium);
+        assert_eq!(app_config.default_model.id, "gpt-4o");
+        assert_eq!(app_config.default_model.provider, "openai");
+    }
+
+    #[test]
+    fn test_merge_with_cli_overrides_model() {
+        let config_file = AppConfigFile::default();
+        let merged = config_file.merge_with_cli(
+            Some("deepseek"),
+            Some("deepseek-reasoner"),
+            Some(ThinkingLevel::High),
+            Some(100),
+        );
+
+        assert_eq!(merged.default_model.provider, "deepseek");
+        assert_eq!(merged.default_model.id, "deepseek-reasoner");
+        assert_eq!(merged.default_thinking, ThinkingLevel::High);
+        assert_eq!(merged.max_turns, 100);
+    }
+
+    #[test]
+    fn test_merge_with_cli_partial_overrides() {
+        let config_file = AppConfigFile::default();
+        // Only override provider; model/thinking/max_turns should stay at defaults
+        let merged = config_file.merge_with_cli(
+            Some("deepseek"),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(merged.default_model.provider, "deepseek");
+        // id should remain from default
+        assert_eq!(merged.default_model.id, "gpt-4o");
+        assert_eq!(merged.default_thinking, ThinkingLevel::Medium);
+        assert_eq!(merged.max_turns, 40);
+    }
+
+    #[test]
+    fn test_merge_with_cli_no_overrides() {
+        let config_file = AppConfigFile::default();
+        let merged = config_file.merge_with_cli(None, None, None, None);
+
+        assert_eq!(merged.default_model.provider, "openai");
+        assert_eq!(merged.default_model.id, "gpt-4o");
+        assert_eq!(merged.default_thinking, ThinkingLevel::Medium);
+        assert_eq!(merged.max_turns, 40);
     }
 }

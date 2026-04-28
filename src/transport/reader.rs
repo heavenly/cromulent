@@ -35,12 +35,8 @@ impl TransportReader {
                         }
                     }
                     Err(e) => {
-                        // Structured parse error — send as an invalid command
-                        let _ = self.cmd_tx.send(ClientCommand::Shutdown {
-                            id: None,
-                        });
-                        tracing::error!("Failed to parse command: {e}");
-                        break;
+                        tracing::warn!("Failed to parse command; ignoring malformed JSONL line: {e}");
+                        continue;
                     }
                 }
             }
