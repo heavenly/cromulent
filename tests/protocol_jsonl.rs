@@ -254,8 +254,8 @@ fn test_serialize_session_changed_event() {
         cwd: "/proj".into(),
         model: ModelInfo {
             provider: "openai".into(),
-            id: "gpt-4o".into(),
-            display_name: "GPT-4o".into(),
+            id: "gpt-5.5".into(),
+            display_name: "GPT-5.5".into(),
             context_window: 128_000,
             supports_reasoning: false,
             supports_tools: true,
@@ -521,8 +521,8 @@ fn test_message_with_tool_call_content() {
 fn test_model_info_serde() {
     let model = ModelInfo {
         provider: "openai".into(),
-        id: "gpt-4o".into(),
-        display_name: "GPT-4o".into(),
+        id: "gpt-5.5".into(),
+        display_name: "GPT-5.5".into(),
         context_window: 128_000,
         supports_reasoning: false,
         supports_tools: true,
@@ -530,7 +530,7 @@ fn test_model_info_serde() {
     let json = serde_json::to_string(&model).unwrap();
     let back: ModelInfo = serde_json::from_str(&json).unwrap();
     assert_eq!(back.provider, "openai");
-    assert_eq!(back.id, "gpt-4o");
+    assert_eq!(back.id, "gpt-5.5");
     assert_eq!(back.context_window, 128_000);
 }
 

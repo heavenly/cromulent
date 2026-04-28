@@ -88,8 +88,8 @@ mod tests {
             "/proj".into(),
             ModelInfo {
                 provider: "openai".into(),
-                id: "gpt-4o".into(),
-                display_name: "GPT-4o".into(),
+                id: "gpt-5.5".into(),
+                display_name: "GPT-5.5".into(),
                 context_window: 128_000,
                 supports_reasoning: false,
                 supports_tools: true,
@@ -150,7 +150,7 @@ mod tests {
 
         // Cwd and model should be inherited
         assert_eq!(forked.header.cwd, "/proj");
-        assert_eq!(forked.header.model.id, "gpt-4o");
+        assert_eq!(forked.header.model.id, "gpt-5.5");
     }
 
     #[test]

@@ -47,7 +47,7 @@ struct Cli {
     #[arg(long)]
     sessions_dir: Option<PathBuf>,
 
-    /// Config file path. Defaults to ~/.config/cromulent/config.json.
+    /// Config file path. Defaults to ~/.cromulent/config.json.
     #[arg(long)]
     config: Option<PathBuf>,
 

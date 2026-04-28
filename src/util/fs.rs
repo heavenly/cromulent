@@ -1,21 +1,23 @@
 use std::path::PathBuf;
 
-/// Get the default sessions directory
+/// Get the default cromulent home directory (`~/.cromulent`).
+pub fn default_cromulent_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".cromulent")
+}
+
+/// Get the default sessions directory (`~/.cromulent/sessions`).
 pub fn default_sessions_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("cromulent")
-        .join("sessions")
+    default_cromulent_dir().join("sessions")
 }
 
-/// Get the default config directory
+/// Get the default config directory (`~/.cromulent`).
 pub fn default_config_dir() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("cromulent")
+    default_cromulent_dir()
 }
 
-/// Get the default config file path
+/// Get the default config file path (`~/.cromulent/config.json`).
 pub fn default_config_path() -> PathBuf {
     default_config_dir().join("config.json")
 }

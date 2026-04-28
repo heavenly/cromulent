@@ -82,8 +82,8 @@ mod tests {
             "/tmp".into(),
             ModelInfo {
                 provider: "openai".into(),
-                id: "gpt-4o".into(),
-                display_name: "GPT-4o".into(),
+                id: "gpt-5.5".into(),
+                display_name: "GPT-5.5".into(),
                 context_window: 128_000,
                 supports_reasoning: false,
                 supports_tools: true,

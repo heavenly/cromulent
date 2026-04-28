@@ -314,10 +314,10 @@ impl AppRuntime {
             },
             ModelInfo {
                 provider: "openai".to_string(),
-                id: "gpt-4o".to_string(),
-                display_name: "GPT-4o".to_string(),
-                context_window: 128_000,
-                supports_reasoning: false,
+                id: "gpt-5.5".to_string(),
+                display_name: "GPT-5.5".to_string(),
+                context_window: 200_000,
+                supports_reasoning: true,
                 supports_tools: true,
             },
             ModelInfo {

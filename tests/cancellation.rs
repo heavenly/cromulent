@@ -16,8 +16,8 @@ fn sample_session() -> LoadedSessionState {
         "/tmp".into(),
         ModelInfo {
             provider: "openai".into(),
-            id: "gpt-4o".into(),
-            display_name: "GPT-4o".into(),
+            id: "gpt-5.5".into(),
+            display_name: "GPT-5.5".into(),
             context_window: 128_000,
             supports_reasoning: false,
             supports_tools: true,
@@ -152,8 +152,8 @@ fn test_run_state_cancel_then_idle() {
 fn test_app_state_defaults() {
     let model = ModelInfo {
         provider: "openai".into(),
-        id: "gpt-4o".into(),
-        display_name: "GPT-4o".into(),
+        id: "gpt-5.5".into(),
+        display_name: "GPT-5.5".into(),
         context_window: 128_000,
         supports_reasoning: false,
         supports_tools: true,
@@ -167,7 +167,7 @@ fn test_app_state_defaults() {
         PathBuf::from("/workspace"),
     );
 
-    assert_eq!(state.model.id, "gpt-4o");
+    assert_eq!(state.model.id, "gpt-5.5");
     assert_eq!(state.thinking_level, ThinkingLevel::Medium);
     assert_eq!(state.cwd, PathBuf::from("/workspace"));
 }

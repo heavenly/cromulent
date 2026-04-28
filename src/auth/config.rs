@@ -51,7 +51,7 @@ impl ProviderAuthConfig {
 // Top-level config file
 // ---------------------------------------------------------------------------
 
-/// Configuration file format stored at `~/.config/cromulent/config.json`.
+/// Configuration file format stored at `~/.cromulent/config.json`.
 ///
 /// Maps providers to their auth settings and contains optional defaults.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,10 +138,10 @@ impl AppConfigFile {
 fn default_model_info() -> ModelInfo {
     ModelInfo {
         provider: "openai".to_string(),
-        id: "gpt-4o".to_string(),
-        display_name: "GPT-4o".to_string(),
-        context_window: 128_000,
-        supports_reasoning: false,
+        id: "gpt-5.5".to_string(),
+        display_name: "GPT-5.5".to_string(),
+        context_window: 200_000,
+        supports_reasoning: true,
         supports_tools: true,
     }
 }
@@ -163,7 +163,7 @@ pub async fn load_config(path: impl AsRef<Path>) -> std::io::Result<AppConfigFil
 }
 
 /// Load configuration from the default config path
-/// (`~/.config/cromulent/config.json`).
+/// (`~/.cromulent/config.json`).
 pub async fn load_default_config() -> std::io::Result<AppConfigFile> {
     load_config(default_config_path()).await
 }
@@ -180,7 +180,7 @@ impl Default for AppConfigFile {
             ProviderAuthConfig {
                 api_key_env: Some("OPENAI_API_KEY".to_string()),
                 base_url: None,
-                default_model: Some("gpt-4o".to_string()),
+                default_model: Some("gpt-5.5".to_string()),
             },
         );
         providers.insert(
@@ -204,10 +204,10 @@ impl Default for AppConfigFile {
             providers,
             default_model: Some(ModelInfo {
                 provider: "openai".to_string(),
-                id: "gpt-4o".to_string(),
-                display_name: "GPT-4o".to_string(),
-                context_window: 128_000,
-                supports_reasoning: false,
+                id: "gpt-5.5".to_string(),
+                display_name: "GPT-5.5".to_string(),
+                context_window: 200_000,
+                supports_reasoning: true,
                 supports_tools: true,
             }),
             thinking_level: Some(ThinkingLevel::Medium),
@@ -317,7 +317,7 @@ mod tests {
 
         assert_eq!(app_config.max_turns, 40);
         assert_eq!(app_config.default_thinking, ThinkingLevel::Medium);
-        assert_eq!(app_config.default_model.id, "gpt-4o");
+        assert_eq!(app_config.default_model.id, "gpt-5.5");
         assert_eq!(app_config.default_model.provider, "openai");
     }
 
@@ -350,7 +350,7 @@ mod tests {
 
         assert_eq!(merged.default_model.provider, "deepseek");
         // id should remain from default
-        assert_eq!(merged.default_model.id, "gpt-4o");
+        assert_eq!(merged.default_model.id, "gpt-5.5");
         assert_eq!(merged.default_thinking, ThinkingLevel::Medium);
         assert_eq!(merged.max_turns, 40);
     }
@@ -361,7 +361,7 @@ mod tests {
         let merged = config_file.merge_with_cli(None, None, None, None);
 
         assert_eq!(merged.default_model.provider, "openai");
-        assert_eq!(merged.default_model.id, "gpt-4o");
+        assert_eq!(merged.default_model.id, "gpt-5.5");
         assert_eq!(merged.default_thinking, ThinkingLevel::Medium);
         assert_eq!(merged.max_turns, 40);
     }

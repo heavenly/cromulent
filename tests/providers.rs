@@ -326,7 +326,7 @@ fn test_provider_manager_resolves_openai() {
     };
     let model = ModelInfo {
         provider: "openai".into(),
-        id: "gpt-4o".into(),
+        id: "gpt-5.5".into(),
         display_name: String::new(),
         context_window: 128_000,
         supports_reasoning: false,

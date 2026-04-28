@@ -4,8 +4,8 @@ use cromulent::session::store::{SessionHeader, SessionStore};
 fn test_model() -> ModelInfo {
     ModelInfo {
         provider: "openai".into(),
-        id: "gpt-4o".into(),
-        display_name: "GPT-4o".into(),
+        id: "gpt-5.5".into(),
+        display_name: "GPT-5.5".into(),
         context_window: 128_000,
         supports_reasoning: false,
         supports_tools: true,
@@ -39,7 +39,7 @@ fn test_session_header_creation() {
     assert_eq!(header.type_field, "session_header");
     assert_eq!(header.cwd, "/home/user/proj");
     assert_eq!(header.schema_version, 1);
-    assert_eq!(header.model.id, "gpt-4o");
+    assert_eq!(header.model.id, "gpt-5.5");
     assert_eq!(header.thinking_level, ThinkingLevel::Medium);
     assert!(!header.created.is_empty());
     assert!(!header.updated.is_empty());
@@ -81,7 +81,7 @@ async fn test_session_store_create_and_load() {
     let loaded = store.load_session("ses_create_test").await.unwrap();
     assert_eq!(loaded.header.session_id, "ses_create_test");
     assert_eq!(loaded.header.cwd, "/home/user");
-    assert_eq!(loaded.header.model.id, "gpt-4o");
+    assert_eq!(loaded.header.model.id, "gpt-5.5");
     assert_eq!(loaded.messages.len(), 0);
 }
 

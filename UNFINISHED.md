@@ -8,7 +8,7 @@ This tracks remaining work after the phase 6–8 implementation pass.
   - `src/providers/openai_responses.rs` streams OpenAI Responses API SSE and maps events to `ProviderEvent`.
   - `src/providers/deepseek_compat.rs` streams DeepSeek/OpenAI-compatible Chat Completions SSE and maps deltas/tool calls to `ProviderEvent`.
 - Config loading is wired in `src/main.rs`:
-  - loads `~/.config/cromulent/config.json` or `--config <path>`
+  - loads `~/.cromulent/config.json` or `--config <path>`
   - merges CLI overrides for provider/model/thinking/max-turns
 - `--setup-codex` now creates the auth directory and can seed `auth/codex.json` from `CODEX_ACCESS_TOKEN` and related env vars.
 - `cycle_model` is implemented with a small built-in model list.
@@ -57,7 +57,7 @@ Future improvement:
 
 ### P1 — Config persistence/write-back
 
-`set_model`, `set_thinking`, and `cycle_model` update the session header, but they do not persist defaults back to `~/.config/cromulent/config.json`.
+`set_model`, `set_thinking`, and `cycle_model` update the session header, but they do not persist defaults back to `~/.cromulent/config.json`.
 
 Decide whether command-driven changes should:
 - update only the current session (current behavior), or

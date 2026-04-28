@@ -147,6 +147,36 @@ while all stream output arrives as events.
 | `CROMULENT_FAKE_RESPONSE` | Script default fake provider text |
 | `CROMULENT_FAKE_DELAY_MS` | Add delay to fake provider chunks |
 
+### Authenticate with Codex
+
+`cromulent` can seed a local Codex credential cache from environment variables. This is useful when another tool or manual flow has already produced a token.
+
+Credential cache location:
+
+```text
+~/.cromulent/auth/codex.json
+```
+
+Minimum setup:
+
+```bash
+CODEX_ACCESS_TOKEN="your-access-token" cargo run -- --setup-codex
+```
+
+Optional fields:
+
+```bash
+CODEX_ACCESS_TOKEN="your-access-token" \
+CODEX_REFRESH_TOKEN="your-refresh-token" \
+CODEX_EXPIRES_AT="2026-04-28T12:00:00Z" \
+CODEX_SCOPE="openid profile email" \
+cargo run -- --setup-codex
+```
+
+If `CODEX_ACCESS_TOKEN` is not set, `--setup-codex` creates the auth directory and prints instructions without writing credentials.
+
+Current limitation: this does **not** perform browser OAuth/device-code sign-in yet. It only writes cached credentials from `CODEX_*` environment variables.
+
 ### Build
 
 ```bash
@@ -162,7 +192,7 @@ cargo build --release
 cargo run
 
 # Start with a specific model/provider
-OPENAI_API_KEY=sk-... cargo run -- --provider openai --model gpt-4o
+OPENAI_API_KEY=sk-... cargo run -- --provider openai --model gpt-5.5
 DEEPSEEK_API_KEY=sk-... cargo run -- --provider deepseek --model deepseek-chat
 
 # Load an existing session
@@ -195,7 +225,7 @@ Options:
       --cwd <PATH>               Working directory (default: current dir)
       --max-turns <N>            Maximum turns per agent run
       --sessions-dir <PATH>      Directory for session persistence
-      --config <PATH>            Config file path (default: ~/.config/cromulent/config.json)
+      --config <PATH>            Config file path (default: ~/.cromulent/config.json)
       --setup-codex              Seed Codex credential cache from CODEX_* env vars and exit
   -h, --help                     Print help
   -V, --version                  Print version
@@ -203,22 +233,22 @@ Options:
 
 ### Configuration
 
-On startup, `cromulent` loads `~/.config/cromulent/config.json` (or `--config <path>`) and then applies CLI overrides.
+On startup, `cromulent` loads `~/.cromulent/config.json` (or `--config <path>`) and then applies CLI overrides.
 
 Example config:
 
 ```json
 {
   "providers": {
-    "openai": { "apiKeyEnv": "OPENAI_API_KEY", "defaultModel": "gpt-4o" },
+    "openai": { "apiKeyEnv": "OPENAI_API_KEY", "defaultModel": "gpt-5.5" },
     "deepseek": { "apiKeyEnv": "DEEPSEEK_API_KEY", "defaultModel": "deepseek-chat" }
   },
   "defaultModel": {
     "provider": "openai",
-    "id": "gpt-4o",
-    "displayName": "GPT-4o",
-    "contextWindow": 128000,
-    "supportsReasoning": false,
+    "id": "gpt-5.5",
+    "displayName": "GPT-5.5",
+    "contextWindow": 200000,
+    "supportsReasoning": true,
     "supportsTools": true
   },
   "thinkingLevel": "medium",
@@ -230,8 +260,7 @@ Example config:
 
 Sessions are stored as JSONL files (one line per entry, header first) in:
 
-- **macOS**: `~/Library/Application Support/cromulent/sessions/`
-- **Linux**: `~/.local/share/cromulent/sessions/`
+- **Default**: `~/.cromulent/sessions/`
 - **Override**: `--sessions-dir <path>`
 
 ## Testing

@@ -449,7 +449,7 @@ mod tests {
         ProviderRequest {
             model: ModelInfo {
                 provider: "openai".into(),
-                id: "gpt-4o".into(),
+                id: "gpt-5.5".into(),
                 display_name: String::new(),
                 context_window: 128_000,
                 supports_reasoning: false,
@@ -473,7 +473,7 @@ mod tests {
         let req = test_request();
         let body = build_request_body(&req);
 
-        assert_eq!(body["model"], "gpt-4o");
+        assert_eq!(body["model"], "gpt-5.5");
         assert_eq!(body["instructions"], "You are a test assistant.");
         assert_eq!(body["stream"], true);
         assert!(
@@ -501,7 +501,7 @@ mod tests {
         let req = ProviderRequest {
             model: ModelInfo {
                 provider: "openai".into(),
-                id: "gpt-4o".into(),
+                id: "gpt-5.5".into(),
                 display_name: String::new(),
                 context_window: 128_000,
                 supports_reasoning: false,

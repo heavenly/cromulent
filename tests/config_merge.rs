@@ -21,7 +21,7 @@ fn test_config_file_default_model_info() {
     let config = AppConfigFile::default();
     let model = config.default_model.as_ref().unwrap();
     assert_eq!(model.provider, "openai");
-    assert_eq!(model.id, "gpt-4o");
+    assert_eq!(model.id, "gpt-5.5");
     assert!(model.supports_tools);
 }
 
@@ -211,7 +211,7 @@ fn test_app_config_default() {
     let config = AppConfig::default();
     assert_eq!(config.max_turns, 40);
     assert_eq!(config.default_model.provider, "openai");
-    assert_eq!(config.default_model.id, "gpt-4o");
+    assert_eq!(config.default_model.id, "gpt-5.5");
     assert_eq!(config.default_thinking, ThinkingLevel::Medium);
     // sessions_dir should be a non-empty path
     assert!(!config.sessions_dir.as_os_str().is_empty());
@@ -247,7 +247,7 @@ fn test_config_file_with_none_values_uses_default_through_load() {
     let config = AppConfigFile::default();
     assert_eq!(config.max_turns, Some(40));
     assert!(config.default_model.is_some());
-    assert_eq!(config.default_model.as_ref().unwrap().id, "gpt-4o");
+    assert_eq!(config.default_model.as_ref().unwrap().id, "gpt-5.5");
     assert_eq!(config.thinking_level, Some(ThinkingLevel::Medium));
 }
 
