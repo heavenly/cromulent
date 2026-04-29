@@ -121,6 +121,24 @@ impl ProviderManager {
         mgr.register("deepseek", Box::new(DeepSeekCompatProvider::new()));
         mgr
     }
+
+    /// Build the default set of providers, resolving API keys from the
+    /// given config file (falls back to env vars when config has no entry).
+    pub fn default_with_config(config: &crate::auth::config::AppConfigFile) -> Self {
+        let mut mgr = Self::new();
+        mgr.register("fake", Box::new(FakeProvider::default()));
+
+        let openai_key = config.resolve_api_key("openai");
+        mgr.register("openai", Box::new(OpenAiResponsesProvider::with_api_key(openai_key)));
+
+        let deepseek_key = config.resolve_api_key("deepseek");
+        mgr.register(
+            "deepseek",
+            Box::new(DeepSeekCompatProvider::with_api_key(deepseek_key)),
+        );
+
+        mgr
+    }
 }
 
 impl std::fmt::Debug for ProviderManager {

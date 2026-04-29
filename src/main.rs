@@ -181,6 +181,7 @@ async fn main() {
         tools::registry::ToolRegistry::default(),
         process::bash_runner::BashRunner::new(cwd),
         tools::ask_user::AskManagerHandle::new(),
+        config_file,
     );
 
     // ------------------------------------------------------------------

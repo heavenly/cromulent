@@ -1,6 +1,10 @@
+use std::error::Error;
+use std::time::Duration;
+
 use async_trait::async_trait;
 use futures::StreamExt;
 use tokio::sync::mpsc;
+use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
 use crate::protocol::types::{
@@ -81,32 +85,13 @@ impl LlmProvider for OpenAiResponsesProvider {
         tokio::spawn(async move {
             let body = build_request_body(&request);
 
-            let response = match client
-                .post(&base_url)
-                .header("Authorization", format!("Bearer {}", api_key))
-                .header("Content-Type", "application/json")
-                .header("Accept", "text/event-stream")
-                .json(&body)
-                .send()
-                .await
-            {
+            let response = match send_with_retries(&client, &base_url, &api_key, &body, &cancel).await {
                 Ok(resp) => resp,
-                Err(e) => {
-                    let _ = tx.send(ProviderEvent::Error {
-                        message: format!("OpenAI request failed: {e}"),
-                    });
+                Err(message) => {
+                    let _ = tx.send(ProviderEvent::Error { message });
                     return;
                 }
             };
-
-            if !response.status().is_success() {
-                let status = response.status().as_u16();
-                let body_text = response.text().await.unwrap_or_default();
-                let _ = tx.send(ProviderEvent::Error {
-                    message: format!("OpenAI API error (HTTP {status}): {body_text}"),
-                });
-                return;
-            }
 
             if let Err(e) = process_sse_stream(response, &tx, &cancel).await {
                 let _ = tx.send(ProviderEvent::Error {
@@ -122,6 +107,74 @@ impl LlmProvider for OpenAiResponsesProvider {
 // ---------------------------------------------------------------------------
 // Request body builder
 // ---------------------------------------------------------------------------
+
+const MAX_REQUEST_ATTEMPTS: usize = 5;
+
+async fn send_with_retries(
+    client: &reqwest::Client,
+    url: &str,
+    api_key: &str,
+    body: &serde_json::Value,
+    cancel: &CancellationToken,
+) -> Result<reqwest::Response, String> {
+    let mut last_error = String::new();
+
+    for attempt in 1..=MAX_REQUEST_ATTEMPTS {
+        if cancel.is_cancelled() {
+            return Err("OpenAI request cancelled".to_string());
+        }
+
+        let result = client
+            .post(url)
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("Content-Type", "application/json")
+            .header("Accept", "text/event-stream")
+            .json(body)
+            .send()
+            .await;
+
+        match result {
+            Ok(response) if response.status().is_success() => return Ok(response),
+            Ok(response) => {
+                let status = response.status();
+                let retryable = status.as_u16() == 429 || status.is_server_error();
+                let body_text = response.text().await.unwrap_or_default();
+                last_error = format!("OpenAI API error (HTTP {}): {body_text}", status.as_u16());
+                if !retryable || attempt == MAX_REQUEST_ATTEMPTS {
+                    return Err(with_attempts(last_error, attempt));
+                }
+            }
+            Err(err) => {
+                last_error = format!("OpenAI request failed: {}", format_reqwest_error(&err));
+                if attempt == MAX_REQUEST_ATTEMPTS {
+                    return Err(with_attempts(last_error, attempt));
+                }
+            }
+        }
+
+        sleep(retry_delay(attempt)).await;
+    }
+
+    Err(with_attempts(last_error, MAX_REQUEST_ATTEMPTS))
+}
+
+fn retry_delay(attempt: usize) -> Duration {
+    Duration::from_millis(250 * attempt as u64)
+}
+
+fn with_attempts(message: String, attempts: usize) -> String {
+    format!("{message} (after {attempts}/{MAX_REQUEST_ATTEMPTS} attempts)")
+}
+
+fn format_reqwest_error(err: &reqwest::Error) -> String {
+    let mut parts = vec![err.to_string()];
+    let mut source = err.source();
+    while let Some(src) = source {
+        parts.push(src.to_string());
+        source = src.source();
+    }
+    parts.join("; source: ")
+}
 
 fn build_request_body(request: &ProviderRequest) -> serde_json::Value {
     let mut body = serde_json::Map::new();

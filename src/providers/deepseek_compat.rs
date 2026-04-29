@@ -1,8 +1,11 @@
 use std::collections::HashSet;
+use std::error::Error;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::StreamExt;
 use tokio::sync::mpsc;
+use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
 use crate::protocol::types::{
@@ -81,35 +84,14 @@ impl LlmProvider for DeepSeekCompatProvider {
         let (tx, rx) = mpsc::unbounded_channel();
 
         tokio::spawn(async move {
-            let res = client
-                .post(url)
-                .bearer_auth(api_key)
-                .header(reqwest::header::CONTENT_TYPE, "application/json")
-                .header(reqwest::header::ACCEPT, "text/event-stream")
-                .json(&body)
-                .send()
-                .await;
-
-            let response = match res {
+            let response = match send_with_retries(&client, &url, &api_key, &body, &cancel).await {
                 Ok(resp) => resp,
-                Err(e) => {
-                    let _ = tx.send(ProviderEvent::Error {
-                        message: format!("DeepSeek request failed: {e}"),
-                    });
+                Err(message) => {
+                    let _ = tx.send(ProviderEvent::Error { message });
                     let _ = tx.send(ProviderEvent::Completed);
                     return;
                 }
             };
-
-            if !response.status().is_success() {
-                let status = response.status();
-                let body = response.text().await.unwrap_or_default();
-                let _ = tx.send(ProviderEvent::Error {
-                    message: format!("DeepSeek HTTP {status}: {body}"),
-                });
-                let _ = tx.send(ProviderEvent::Completed);
-                return;
-            }
 
             let mut stream = response.bytes_stream();
             let mut buffer = String::new();
@@ -149,6 +131,74 @@ impl LlmProvider for DeepSeekCompatProvider {
 
         Ok(rx)
     }
+}
+
+const MAX_REQUEST_ATTEMPTS: usize = 5;
+
+async fn send_with_retries(
+    client: &reqwest::Client,
+    url: &str,
+    api_key: &str,
+    body: &serde_json::Value,
+    cancel: &CancellationToken,
+) -> Result<reqwest::Response, String> {
+    let mut last_error = String::new();
+
+    for attempt in 1..=MAX_REQUEST_ATTEMPTS {
+        if cancel.is_cancelled() {
+            return Err("DeepSeek request cancelled".to_string());
+        }
+
+        let result = client
+            .post(url)
+            .bearer_auth(api_key)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header(reqwest::header::ACCEPT, "text/event-stream")
+            .json(body)
+            .send()
+            .await;
+
+        match result {
+            Ok(response) if response.status().is_success() => return Ok(response),
+            Ok(response) => {
+                let status = response.status();
+                let retryable = status.as_u16() == 429 || status.is_server_error();
+                let body_text = response.text().await.unwrap_or_default();
+                last_error = format!("DeepSeek HTTP {status}: {body_text}");
+                if !retryable || attempt == MAX_REQUEST_ATTEMPTS {
+                    return Err(with_attempts(last_error, attempt));
+                }
+            }
+            Err(err) => {
+                last_error = format!("DeepSeek request failed: {}", format_reqwest_error(&err));
+                if attempt == MAX_REQUEST_ATTEMPTS {
+                    return Err(with_attempts(last_error, attempt));
+                }
+            }
+        }
+
+        sleep(retry_delay(attempt)).await;
+    }
+
+    Err(with_attempts(last_error, MAX_REQUEST_ATTEMPTS))
+}
+
+fn retry_delay(attempt: usize) -> Duration {
+    Duration::from_millis(250 * attempt as u64)
+}
+
+fn with_attempts(message: String, attempts: usize) -> String {
+    format!("{message} (after {attempts}/{MAX_REQUEST_ATTEMPTS} attempts)")
+}
+
+fn format_reqwest_error(err: &reqwest::Error) -> String {
+    let mut parts = vec![err.to_string()];
+    let mut source = err.source();
+    while let Some(src) = source {
+        parts.push(src.to_string());
+        source = src.source();
+    }
+    parts.join("; source: ")
 }
 
 fn build_request_body(request: &ProviderRequest) -> serde_json::Value {

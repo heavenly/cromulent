@@ -6,6 +6,7 @@ use tokio_util::sync::CancellationToken;
 use crate::agent::runner::AgentRunner;
 use crate::app::output::{emit_event, respond};
 use crate::app::state::{RunState, SharedAppState};
+use crate::auth::config::AppConfigFile;
 use crate::process::bash_runner::BashRunner;
 use crate::protocol::events::ServerEvent;
 use crate::protocol::responses::{CommandResponse, StateSnapshot};
@@ -27,6 +28,7 @@ pub struct AppRuntime {
     pub bash_runner: std::sync::Mutex<BashRunner>,
     pub bash_cancel: std::sync::Mutex<Option<CancellationToken>>,
     pub ask_manager: AskManagerHandle,
+    pub config: AppConfigFile,
 }
 
 impl AppRuntime {
@@ -37,6 +39,7 @@ impl AppRuntime {
         tool_registry: ToolRegistry,
         bash_runner: BashRunner,
         ask_manager: AskManagerHandle,
+        config: AppConfigFile,
     ) -> Self {
         Self {
             state,
@@ -46,6 +49,7 @@ impl AppRuntime {
             bash_runner: std::sync::Mutex::new(bash_runner),
             bash_cancel: std::sync::Mutex::new(None),
             ask_manager,
+            config,
         }
     }
 
@@ -109,9 +113,10 @@ impl AppRuntime {
         let session_store = self.session_store.clone();
         let tool_registry = self.tool_registry.clone();
         let ask_manager = self.ask_manager.clone();
+        let config = self.config.clone();
         tokio::spawn(async move {
             let runner = AgentRunner::new();
-            let provider_manager = ProviderManager::default();
+            let provider_manager = ProviderManager::default_with_config(&config);
             let result = runner
                 .run_prompt(
                     messages,

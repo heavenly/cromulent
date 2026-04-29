@@ -14,6 +14,10 @@ use crate::util::fs::default_config_path;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderAuthConfig {
+    /// API key stored directly in the config file (highest priority).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+
     /// Environment variable name that holds the API key.
     /// Defaults to `{PROVIDER_UPPERCASE}_API_KEY` if not set.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -29,11 +33,18 @@ pub struct ProviderAuthConfig {
 }
 
 impl ProviderAuthConfig {
-    /// Return the configured API key by checking:
-    /// 1. The env var specified in `api_key_env` (if set).
-    /// 2. The env var `{PROVIDER}_API_KEY` in uppercase (convention).
+    /// Return the configured API key by checking, in priority order:
+    /// 1. The `apiKey` field in the config file (direct key).
+    /// 2. The env var specified in `api_key_env` (if set).
+    /// 3. The env var `{PROVIDER}_API_KEY` in uppercase (convention).
     pub fn resolve_api_key(&self, provider_name: &str) -> Option<String> {
-        // Try explicit env var name first
+        // 1. Direct key in config file
+        if let Some(key) = &self.api_key {
+            if !key.is_empty() {
+                return Some(key.clone());
+            }
+        }
+        // 2. Explicit env var name
         if let Some(env_var) = &self.api_key_env {
             if let Ok(key) = std::env::var(env_var) {
                 if !key.is_empty() {
@@ -41,7 +52,7 @@ impl ProviderAuthConfig {
                 }
             }
         }
-        // Fall back to convention: {PROVIDER}_API_KEY
+        // 3. Fall back to convention: {PROVIDER}_API_KEY
         let conventional = format!("{}_API_KEY", provider_name.to_uppercase().replace('-', "_"));
         std::env::var(conventional).ok().filter(|k| !k.is_empty())
     }
