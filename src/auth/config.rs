@@ -189,6 +189,7 @@ impl Default for AppConfigFile {
         providers.insert(
             "openai".to_string(),
             ProviderAuthConfig {
+                api_key: None,
                 api_key_env: Some("OPENAI_API_KEY".to_string()),
                 base_url: None,
                 default_model: Some("gpt-5.5".to_string()),
@@ -197,6 +198,7 @@ impl Default for AppConfigFile {
         providers.insert(
             "deepseek".to_string(),
             ProviderAuthConfig {
+                api_key: None,
                 api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
                 base_url: None,
                 default_model: Some("deepseek-chat".to_string()),
@@ -205,6 +207,7 @@ impl Default for AppConfigFile {
         providers.insert(
             "opencode".to_string(),
             ProviderAuthConfig {
+                api_key: None,
                 api_key_env: Some("OPENCODE_API_KEY".to_string()),
                 base_url: None,
                 default_model: None,
@@ -249,6 +252,7 @@ mod tests {
         providers.insert(
             "test-provider".to_string(),
             ProviderAuthConfig {
+                api_key: None,
                 api_key_env: Some("TEST_CROMULENT_KEY".to_string()),
                 base_url: None,
                 default_model: None,
@@ -277,6 +281,7 @@ mod tests {
         providers.insert(
             "myprov".to_string(),
             ProviderAuthConfig {
+                api_key: None,
                 api_key_env: None,
                 base_url: None,
                 default_model: None,
@@ -291,6 +296,30 @@ mod tests {
         assert_eq!(key, Some("sk-convention".to_string()));
 
         unsafe { std::env::remove_var("MYPROV_API_KEY") };
+    }
+
+    #[test]
+    fn test_resolve_api_key_direct() {
+        // apiKey stored directly in config takes highest priority
+        let mut providers = HashMap::new();
+        providers.insert(
+            "myprov".to_string(),
+            ProviderAuthConfig {
+                api_key: Some("sk-direct-key".to_string()),
+                api_key_env: Some("IGNORED_ENV".to_string()),
+                base_url: None,
+                default_model: None,
+            },
+        );
+        let config = AppConfigFile {
+            providers,
+            default_model: None,
+            thinking_level: None,
+            max_turns: None,
+        };
+
+        let key = config.resolve_api_key("myprov");
+        assert_eq!(key, Some("sk-direct-key".to_string()));
     }
 
     #[tokio::test]

@@ -37,6 +37,7 @@ fn test_resolve_api_key_from_config_env_var() {
     providers.insert(
         "test-provider".into(),
         ProviderAuthConfig {
+            api_key: None,
             api_key_env: Some("TEST_OPENAI_KEY".into()),
             base_url: None,
             default_model: None,
@@ -85,6 +86,7 @@ fn test_resolve_api_key_config_takes_precedence_over_convention() {
     providers.insert(
         "precedence".into(),
         ProviderAuthConfig {
+            api_key: None,
             api_key_env: Some("PRECEDENCE_EXPLICIT".into()),
             base_url: None,
             default_model: None,
@@ -112,6 +114,7 @@ fn test_resolve_api_key_skips_empty_env_var() {
     providers.insert(
         "empty-test".into(),
         ProviderAuthConfig {
+            api_key: None,
             api_key_env: Some("EMPTY_KEY".into()),
             base_url: None,
             default_model: None,
@@ -161,6 +164,7 @@ fn test_provider_auth_config_resolve_explicit_env() {
     unsafe { std::env::set_var("MY_CUSTOM_KEY", "sk-my-key") };
 
     let auth = ProviderAuthConfig {
+        api_key: None,
         api_key_env: Some("MY_CUSTOM_KEY".into()),
         base_url: None,
         default_model: None,
@@ -177,6 +181,7 @@ fn test_provider_auth_config_resolve_convention() {
     unsafe { std::env::set_var("MY_PROVIDER_API_KEY", "sk-convention-key") };
 
     let auth = ProviderAuthConfig {
+        api_key: None,
         api_key_env: None,
         base_url: None,
         default_model: None,
@@ -193,6 +198,7 @@ fn test_provider_auth_config_resolve_neither() {
     unsafe { std::env::remove_var("NO_PROVIDER_API_KEY") };
 
     let auth = ProviderAuthConfig {
+        api_key: None,
         api_key_env: None,
         base_url: None,
         default_model: None,
