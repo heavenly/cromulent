@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::time::Duration;
 
@@ -96,6 +96,7 @@ impl LlmProvider for DeepSeekCompatProvider {
             let mut stream = response.bytes_stream();
             let mut buffer = String::new();
             let mut open_tool_calls: HashSet<String> = HashSet::new();
+            let mut index_to_id: HashMap<u64, String> = HashMap::new();
 
             while let Some(chunk) = stream.next().await {
                 if cancel.is_cancelled() {
@@ -118,12 +119,12 @@ impl LlmProvider for DeepSeekCompatProvider {
                 while let Some(idx) = buffer.find('\n') {
                     let line = buffer[..idx].trim().to_string();
                     buffer = buffer[idx + 1..].to_string();
-                    process_sse_line(&line, &tx, &mut open_tool_calls);
+                    process_sse_line(&line, &tx, &mut open_tool_calls, &mut index_to_id);
                 }
             }
 
             if !buffer.trim().is_empty() {
-                process_sse_line(buffer.trim(), &tx, &mut open_tool_calls);
+                process_sse_line(buffer.trim(), &tx, &mut open_tool_calls, &mut index_to_id);
             }
             complete_open_tool_calls(&tx, &mut open_tool_calls);
             let _ = tx.send(ProviderEvent::Completed);
@@ -307,6 +308,7 @@ fn process_sse_line(
     line: &str,
     tx: &mpsc::UnboundedSender<ProviderEvent>,
     open_tool_calls: &mut HashSet<String>,
+    index_to_id: &mut HashMap<u64, String>,
 ) {
     if line.is_empty() || !line.starts_with("data:") {
         return;
@@ -378,14 +380,22 @@ fn process_sse_line(
 
         if let Some(calls) = delta.get("tool_calls").and_then(|v| v.as_array()) {
             for call in calls {
-                let id = call
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| {
-                        let idx = call.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
-                        format!("call_{idx}")
-                    });
+                let idx = call.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
+
+                // Resolve the real ID: prefer the explicit "id" field, but fall
+                // back to the index→id mapping (subsequent argument-only chunks
+                // only carry "index", not "id").
+                let id = if let Some(explicit_id) = call.get("id").and_then(|v| v.as_str()) {
+                    let id = explicit_id.to_string();
+                    index_to_id.insert(idx, id.clone());
+                    id
+                } else {
+                    index_to_id
+                        .get(&idx)
+                        .cloned()
+                        .unwrap_or_else(|| format!("call_{idx}"))
+                };
+
                 let func = call.get("function").cloned().unwrap_or_default();
                 let name = func.get("name").and_then(|v| v.as_str());
                 if let Some(name) = name {
@@ -445,10 +455,12 @@ mod tests {
     fn test_text_sse() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut open = HashSet::new();
+        let mut idx_map = HashMap::new();
         process_sse_line(
             r#"data: {"choices":[{"delta":{"content":"hello"}}]}"#,
             &tx,
             &mut open,
+            &mut idx_map,
         );
         match rx.try_recv().unwrap() {
             ProviderEvent::TextDelta { text } => assert_eq!(text, "hello"),
@@ -494,10 +506,12 @@ mod tests {
     fn test_tool_sse() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut open = HashSet::new();
+        let mut idx_map = HashMap::new();
         process_sse_line(
             r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read","arguments":"{\"path\":"}}]}}]}"#,
             &tx,
             &mut open,
+            &mut idx_map,
         );
         assert!(matches!(
             rx.try_recv().unwrap(),
@@ -507,5 +521,58 @@ mod tests {
             rx.try_recv().unwrap(),
             ProviderEvent::ToolCallArgumentsDelta { .. }
         ));
+    }
+
+    /// Reproduces the real DeepSeek streaming bug: only the first delta carries
+    /// the `id` field; subsequent argument-only deltas carry only `index`.
+    #[test]
+    fn test_tool_sse_index_only_subsequent_deltas() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut open = HashSet::new();
+        let mut idx_map = HashMap::new();
+
+        // First delta: has id, name, and first part of arguments
+        process_sse_line(
+            r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_00_abc123","type":"function","function":{"name":"bash","arguments":""}}]}}]}"#,
+            &tx,
+            &mut open,
+            &mut idx_map,
+        );
+        // Should get ToolCallStarted (arguments empty, not sent as delta)
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            ProviderEvent::ToolCallStarted { id, name } if id == "call_00_abc123" && name == "bash"
+        ));
+
+        // Second delta: only index, no id — just continuation of arguments
+        process_sse_line(
+            r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"command\":"}}]}}]}"#,
+            &tx,
+            &mut open,
+            &mut idx_map,
+        );
+        // Should get ToolCallArgumentsDelta with the SAME id
+        match rx.try_recv().unwrap() {
+            ProviderEvent::ToolCallArgumentsDelta { id, delta } => {
+                assert_eq!(id, "call_00_abc123", "subsequent delta must use the real id from index→id map");
+                assert_eq!(delta, "{\"command\":");
+            }
+            other => panic!("expected ToolCallArgumentsDelta, got {other:?}"),
+        }
+
+        // Third delta: finishing the arguments
+        process_sse_line(
+            r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"ls\"}"}}]}}]}"#,
+            &tx,
+            &mut open,
+            &mut idx_map,
+        );
+        match rx.try_recv().unwrap() {
+            ProviderEvent::ToolCallArgumentsDelta { id, delta } => {
+                assert_eq!(id, "call_00_abc123");
+                assert_eq!(delta, "\"ls\"}");
+            }
+            other => panic!("expected ToolCallArgumentsDelta, got {other:?}"),
+        }
     }
 }
