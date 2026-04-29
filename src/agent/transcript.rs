@@ -44,6 +44,7 @@ pub fn message_to_llm(message: &Message) -> Option<LlmMessage> {
 fn content_block_to_llm(block: &ContentBlock) -> Option<LlmContentBlock> {
     match block {
         ContentBlock::Text { text } => Some(LlmContentBlock::Text { text: text.clone() }),
+        ContentBlock::Thinking { text } => Some(LlmContentBlock::Thinking { text: text.clone() }),
         ContentBlock::ToolCall {
             id,
             name,
@@ -145,10 +146,27 @@ pub fn new_assistant_tool_call_message(tool_calls: Vec<LlmContentBlock>) -> Mess
 /// Create a new assistant message combining text and tool calls
 /// (for providers that emit both in one response).
 pub fn new_assistant_message(text: Option<String>, tool_calls: Vec<LlmContentBlock>) -> Message {
+    new_assistant_message_with_thinking(text, None, tool_calls)
+}
+
+/// Create a new assistant message combining optional thinking, text, and tool calls.
+pub fn new_assistant_message_with_thinking(
+    text: Option<String>,
+    thinking: Option<String>,
+    tool_calls: Vec<LlmContentBlock>,
+) -> Message {
     let mut content = Vec::new();
 
+    if let Some(t) = thinking {
+        if !t.is_empty() {
+            content.push(ContentBlock::Thinking { text: t });
+        }
+    }
+
     if let Some(t) = text {
-        content.push(ContentBlock::Text { text: t });
+        if !t.is_empty() {
+            content.push(ContentBlock::Text { text: t });
+        }
     }
 
     for tc in tool_calls {

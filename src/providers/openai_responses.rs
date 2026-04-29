@@ -191,6 +191,9 @@ fn build_input_items(messages: &[LlmMessage]) -> Vec<serde_json::Value> {
                 LlmContentBlock::Text { text } => {
                     serde_json::json!({"type": "input_text", "text": text})
                 }
+                LlmContentBlock::Thinking { text } => {
+                    serde_json::json!({"type": "input_text", "text": format!("[reasoning]\n{text}")})
+                }
                 LlmContentBlock::ToolCall {
                     id,
                     name,

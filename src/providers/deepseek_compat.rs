@@ -178,11 +178,13 @@ fn build_request_body(request: &ProviderRequest) -> serde_json::Value {
 fn convert_message(message: &LlmMessage) -> Vec<serde_json::Value> {
     let mut out = Vec::new();
     let mut text_parts = Vec::new();
+    let mut thinking_parts = Vec::new();
     let mut tool_calls = Vec::new();
 
     for block in &message.content {
         match block {
             LlmContentBlock::Text { text } => text_parts.push(text.clone()),
+            LlmContentBlock::Thinking { text } => thinking_parts.push(text.clone()),
             LlmContentBlock::ToolCall {
                 id,
                 name,
@@ -211,7 +213,7 @@ fn convert_message(message: &LlmMessage) -> Vec<serde_json::Value> {
         }
     }
 
-    if !text_parts.is_empty() || !tool_calls.is_empty() {
+    if !text_parts.is_empty() || !thinking_parts.is_empty() || !tool_calls.is_empty() {
         let role = if message.role == "tool" {
             "user"
         } else {
@@ -221,6 +223,11 @@ fn convert_message(message: &LlmMessage) -> Vec<serde_json::Value> {
             "role": role,
             "content": text_parts.join("\n"),
         });
+        if role == "assistant" && !thinking_parts.is_empty() {
+            // DeepSeek thinking-mode follow-up requests must echo the prior
+            // assistant reasoning text as `reasoning_content`.
+            item["reasoning_content"] = serde_json::Value::String(thinking_parts.join(""));
+        }
         if !tool_calls.is_empty() {
             item["tool_calls"] = serde_json::Value::Array(tool_calls);
         }
@@ -397,6 +404,40 @@ mod tests {
             ProviderEvent::TextDelta { text } => assert_eq!(text, "hello"),
             other => panic!("unexpected event: {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_convert_assistant_reasoning_content() {
+        let request = ProviderRequest {
+            model: crate::protocol::types::ModelInfo {
+                provider: "deepseek".into(),
+                id: "deepseek-v4-flash".into(),
+                display_name: String::new(),
+                context_window: 128_000,
+                supports_reasoning: true,
+                supports_tools: true,
+            },
+            system_prompt: "system".into(),
+            messages: vec![LlmMessage {
+                role: "assistant".into(),
+                content: vec![
+                    LlmContentBlock::Thinking { text: "reason".into() },
+                    LlmContentBlock::ToolCall {
+                        id: "call_1".into(),
+                        name: "find".into(),
+                        arguments: serde_json::json!({"pattern":"*.rs"}),
+                    },
+                ],
+            }],
+            tools: vec![],
+            thinking_level: crate::protocol::types::ThinkingLevel::Medium,
+            cwd: std::path::PathBuf::from("."),
+        };
+        let body = build_request_body(&request);
+        let msg = &body["messages"].as_array().unwrap()[1];
+        assert_eq!(msg["role"], "assistant");
+        assert_eq!(msg["reasoning_content"], "reason");
+        assert!(msg["tool_calls"].is_array());
     }
 
     #[test]

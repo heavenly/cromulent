@@ -181,6 +181,7 @@ impl AgentRunner {
 
             // --- 5a. Consume provider events ---------------------------------------
             let mut assistant_text: Option<String> = None;
+            let mut assistant_thinking: Option<String> = None;
             let mut assistant_tool_calls: Vec<LlmContentBlock> = Vec::new();
             let mut usage: Option<UsageInfo> = None;
             let mut turn_error: Option<String> = None;
@@ -211,12 +212,14 @@ impl AgentRunner {
                     }
 
                     ProviderEvent::ThinkingDelta { text } => {
+                        let current = assistant_thinking.get_or_insert_with(String::new);
+                        current.push_str(&text);
                         emit_event(
                             output_tx,
                             ServerEvent::ThinkingDelta {
                                 run_id: run_id.clone(),
                                 text: text.clone(),
-                                partial: text,
+                                partial: current.clone(),
                             },
                         );
                     }
@@ -314,11 +317,13 @@ impl AgentRunner {
                     },
                 );
                 // Even on error, we try to persist what we have
-                let has_content = assistant_text.is_some()
-                    && assistant_text.as_ref().is_some_and(|s| !s.is_empty());
+                let has_content = assistant_text.as_ref().is_some_and(|s| !s.is_empty())
+                    || assistant_thinking.as_ref().is_some_and(|s| !s.is_empty())
+                    || !assistant_tool_calls.is_empty();
                 if has_content {
-                    let assistant_msg = transcript::new_assistant_message(
+                    let assistant_msg = transcript::new_assistant_message_with_thinking(
                         assistant_text,
+                        assistant_thinking,
                         std::mem::take(&mut assistant_tool_calls),
                     );
                     let _ = session_store
@@ -340,16 +345,18 @@ impl AgentRunner {
             }
 
             // --- 5b. Build and persist assistant message ---------------------------
-            let assistant_msg = transcript::new_assistant_message(
+            let assistant_msg = transcript::new_assistant_message_with_thinking(
                 assistant_text.clone(),
+                assistant_thinking.clone(),
                 assistant_tool_calls.clone(),
             );
 
             let has_tool_calls = !assistant_tool_calls.is_empty();
             let has_text = assistant_text.as_ref().is_some_and(|s| !s.is_empty());
+            let has_thinking = assistant_thinking.as_ref().is_some_and(|s| !s.is_empty());
 
-            // Only persist assistant message if there's content or tool calls
-            if has_text || has_tool_calls {
+            // Only persist assistant message if there's content, thinking, or tool calls
+            if has_text || has_thinking || has_tool_calls {
                 let _ = session_store
                     .append_message(session_id, &assistant_msg)
                     .await;

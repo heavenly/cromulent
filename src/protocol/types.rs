@@ -79,6 +79,8 @@ pub enum ContentBlock {
     #[serde(rename_all = "camelCase")]
     Text { text: String },
     #[serde(rename_all = "camelCase")]
+    Thinking { text: String },
+    #[serde(rename_all = "camelCase")]
     ToolCall {
         id: String,
         name: String,
@@ -158,6 +160,8 @@ pub struct LlmMessage {
 pub enum LlmContentBlock {
     #[serde(rename_all = "camelCase")]
     Text { text: String },
+    #[serde(rename_all = "camelCase")]
+    Thinking { text: String },
     #[serde(rename_all = "camelCase")]
     ToolCall {
         id: String,
