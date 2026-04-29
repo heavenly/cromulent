@@ -3,10 +3,10 @@ use futures::StreamExt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::providers::{LlmProvider, ProviderError};
 use crate::protocol::types::{
     LlmContentBlock, LlmMessage, ProviderEvent, ProviderRequest, ThinkingLevel,
 };
+use crate::providers::{LlmProvider, ProviderError};
 
 /// OpenAI Responses API provider adapter.
 ///
@@ -37,7 +37,11 @@ impl OpenAiResponsesProvider {
         let base_url = std::env::var("OPENAI_BASE_URL")
             .unwrap_or_else(|_| "https://api.openai.com/v1/responses".to_string());
         let client = reqwest::Client::new();
-        Self { api_key, base_url, client }
+        Self {
+            api_key,
+            base_url,
+            client,
+        }
     }
 
     /// Check whether an API key is configured.
@@ -215,7 +219,11 @@ fn build_input_items(messages: &[LlmMessage]) -> Vec<serde_json::Value> {
             })
             .collect();
 
-        let role = if msg.role == "tool" { "user" } else { msg.role.as_str() };
+        let role = if msg.role == "tool" {
+            "user"
+        } else {
+            msg.role.as_str()
+        };
         items.push(serde_json::json!({
             "role": role,
             "content": content_blocks,
@@ -360,10 +368,7 @@ fn dispatch_event(
 
         // --- Tool call arguments delta -------------------------------------
         "response.function_call_arguments.delta" | "function_call_arguments.delta" => {
-            let id = data
-                .get("item_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let id = data.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
             let delta = data.get("delta").and_then(|v| v.as_str()).unwrap_or("");
             if !id.is_empty() && !delta.is_empty() {
                 let _ = tx.send(ProviderEvent::ToolCallArgumentsDelta {
@@ -375,14 +380,9 @@ fn dispatch_event(
 
         // --- Tool call completed -------------------------------------------
         "response.function_call_arguments.done" | "function_call_arguments.done" => {
-            let id = data
-                .get("item_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let id = data.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
             if !id.is_empty() {
-                let _ = tx.send(ProviderEvent::ToolCallCompleted {
-                    id: id.to_string(),
-                });
+                let _ = tx.send(ProviderEvent::ToolCallCompleted { id: id.to_string() });
             }
         }
 
@@ -390,9 +390,7 @@ fn dispatch_event(
             if data.get("type").and_then(|v| v.as_str()) == Some("function_call") {
                 let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
                 if !id.is_empty() {
-                    let _ = tx.send(ProviderEvent::ToolCallCompleted {
-                        id: id.to_string(),
-                    });
+                    let _ = tx.send(ProviderEvent::ToolCallCompleted { id: id.to_string() });
                 }
             }
         }
@@ -517,9 +515,7 @@ mod tests {
                 },
                 LlmMessage {
                     role: "user".into(),
-                    content: vec![LlmContentBlock::Text {
-                        text: "Hi".into(),
-                    }],
+                    content: vec![LlmContentBlock::Text { text: "Hi".into() }],
                 },
             ],
             tools: vec![],
@@ -628,11 +624,7 @@ mod tests {
             "delta": "{\"pat"
         });
 
-        dispatch_event(
-            "response.function_call_arguments.delta",
-            &json,
-            &tx,
-        );
+        dispatch_event("response.function_call_arguments.delta", &json, &tx);
         drop(tx);
 
         let event = rx.try_recv().unwrap();
@@ -771,9 +763,7 @@ mod tests {
             3,
             "expected 3 events: text delta, usage, completed"
         );
-        assert!(
-            matches!(&collected[0], ProviderEvent::TextDelta { text } if text == "Hello")
-        );
+        assert!(matches!(&collected[0], ProviderEvent::TextDelta { text } if text == "Hello"));
         assert!(matches!(&collected[1], ProviderEvent::Usage { .. }));
         assert!(matches!(&collected[2], ProviderEvent::Completed));
     }

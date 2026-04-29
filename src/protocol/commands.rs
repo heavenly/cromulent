@@ -28,49 +28,34 @@ pub enum ClientCommand {
         level: ThinkingLevel,
     },
     #[serde(rename_all = "camelCase")]
-    CycleModel {
-        id: Option<String>,
-    },
+    CycleModel { id: Option<String> },
     #[serde(rename_all = "camelCase")]
-    Bash {
-        id: Option<String>,
-        command: String,
-    },
+    Bash { id: Option<String>, command: String },
     #[serde(rename_all = "camelCase")]
-    ListSessions {
-        id: Option<String>,
-    },
+    ListSessions { id: Option<String> },
     #[serde(rename_all = "camelCase")]
     LoadSession {
         id: Option<String>,
         session_id: String,
     },
     #[serde(rename_all = "camelCase")]
-    NewSession {
-        id: Option<String>,
-    },
+    NewSession { id: Option<String> },
     #[serde(rename_all = "camelCase")]
     ForkSession {
         id: Option<String>,
         entry_id: String,
     },
     #[serde(rename_all = "camelCase")]
-    GetState {
-        id: Option<String>,
-    },
+    GetState { id: Option<String> },
     #[serde(rename_all = "camelCase")]
-    GetMessages {
-        id: Option<String>,
-    },
+    GetMessages { id: Option<String> },
     #[serde(rename_all = "camelCase")]
     ExportSession {
         id: Option<String>,
         output_path: String,
     },
     #[serde(rename_all = "camelCase")]
-    Shutdown {
-        id: Option<String>,
-    },
+    Shutdown { id: Option<String> },
     #[serde(other)]
     Invalid,
 }

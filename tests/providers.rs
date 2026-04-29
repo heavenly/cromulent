@@ -5,7 +5,10 @@ use tokio_util::sync::CancellationToken;
 use cromulent::protocol::types::{
     LlmContentBlock, LlmMessage, ModelInfo, ProviderEvent, ProviderRequest, ThinkingLevel,
 };
-use cromulent::providers::{DeepSeekCompatProvider, FakeProvider, LlmProvider, OpenAiResponsesProvider, ProviderError, ProviderManager};
+use cromulent::providers::{
+    DeepSeekCompatProvider, FakeProvider, LlmProvider, OpenAiResponsesProvider, ProviderError,
+    ProviderManager,
+};
 
 fn dummy_request() -> ProviderRequest {
     ProviderRequest {
@@ -113,9 +116,14 @@ fn test_openai_api_key_present_does_not_stream_without_network() {
     assert!(provider.is_configured());
 
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let mut rx = rt.block_on(provider.stream(dummy_request(), cancel)).unwrap();
+    let mut rx = rt
+        .block_on(provider.stream(dummy_request(), cancel))
+        .unwrap();
     let event = rt.block_on(rx.recv());
-    assert!(event.is_some(), "Expected some event from the provider stream");
+    assert!(
+        event.is_some(),
+        "Expected some event from the provider stream"
+    );
     assert!(
         matches!(&event, Some(ProviderEvent::Error { .. })),
         "Expected Error event (no network), got: {event:?}"
@@ -149,7 +157,9 @@ fn test_deepseek_api_key_present() {
     assert!(provider.is_configured());
 
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let mut rx = rt.block_on(provider.stream(dummy_request(), cancel)).unwrap();
+    let mut rx = rt
+        .block_on(provider.stream(dummy_request(), cancel))
+        .unwrap();
     let event = rt.block_on(rx.recv());
     assert!(
         matches!(event, Some(ProviderEvent::Error { .. })),
@@ -215,7 +225,13 @@ async fn test_fake_provider_scripted_text_sequence() {
     assert_eq!(received.len(), events.len());
     assert!(matches!(&received[0], ProviderEvent::TextDelta { text } if text == "Hello "));
     assert!(matches!(&received[1], ProviderEvent::TextDelta { text } if text == "World"));
-    assert!(matches!(&received[2], ProviderEvent::Usage { input_tokens: 10, output_tokens: 5 }));
+    assert!(matches!(
+        &received[2],
+        ProviderEvent::Usage {
+            input_tokens: 10,
+            output_tokens: 5
+        }
+    ));
     assert!(matches!(&received[3], ProviderEvent::Completed));
 }
 
@@ -265,9 +281,15 @@ async fn test_fake_provider_scripted_tool_call() {
     }
 
     assert_eq!(received.len(), events.len());
-    assert!(matches!(&received[1], ProviderEvent::ToolCallStarted { id, name } if id == "call_1" && name == "read"));
-    assert!(matches!(&received[2], ProviderEvent::ToolCallArgumentsDelta { id, .. } if id == "call_1"));
-    assert!(matches!(&received[3], ProviderEvent::ToolCallArgumentsDelta { id, .. } if id == "call_1"));
+    assert!(
+        matches!(&received[1], ProviderEvent::ToolCallStarted { id, name } if id == "call_1" && name == "read")
+    );
+    assert!(
+        matches!(&received[2], ProviderEvent::ToolCallArgumentsDelta { id, .. } if id == "call_1")
+    );
+    assert!(
+        matches!(&received[3], ProviderEvent::ToolCallArgumentsDelta { id, .. } if id == "call_1")
+    );
     assert!(matches!(&received[4], ProviderEvent::ToolCallCompleted { id } if id == "call_1"));
 }
 
@@ -294,7 +316,9 @@ async fn test_fake_provider_scripted_error() {
     assert!(matches!(&event1, Some(ProviderEvent::TextDelta { text }) if text == "Starting..."));
 
     let event2 = rx.recv().await;
-    assert!(matches!(&event2, Some(ProviderEvent::Error { message }) if message == "Something went wrong"));
+    assert!(
+        matches!(&event2, Some(ProviderEvent::Error { message }) if message == "Something went wrong")
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -309,7 +333,10 @@ async fn test_fake_provider_scripted_empty() {
 
     // Empty script: receiver immediately returns None (channel closed)
     let event = rx.recv().await;
-    assert!(event.is_none(), "Expected no events for empty script, got: {event:?}");
+    assert!(
+        event.is_none(),
+        "Expected no events for empty script, got: {event:?}"
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -335,9 +362,14 @@ fn test_provider_manager_resolves_openai() {
     let provider = mgr.get(&model).unwrap();
     let cancel = CancellationToken::new();
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let mut rx = rt.block_on(provider.stream(dummy_request(), cancel)).unwrap();
+    let mut rx = rt
+        .block_on(provider.stream(dummy_request(), cancel))
+        .unwrap();
     let event = rt.block_on(rx.recv());
-    assert!(event.is_some(), "Expected some event from the provider stream");
+    assert!(
+        event.is_some(),
+        "Expected some event from the provider stream"
+    );
     assert!(
         matches!(&event, Some(ProviderEvent::Error { .. })),
         "Expected Error event (no network), got: {event:?}"
@@ -358,7 +390,10 @@ async fn test_provider_manager_resolves_fake() {
     let provider = mgr.get(&model).unwrap();
     let cancel = CancellationToken::new();
     let mut rx = provider.stream(dummy_request(), cancel).await.unwrap();
-    assert!(matches!(rx.recv().await, Some(ProviderEvent::TextDelta { .. })));
+    assert!(matches!(
+        rx.recv().await,
+        Some(ProviderEvent::TextDelta { .. })
+    ));
 }
 
 // -----------------------------------------------------------------------
@@ -376,10 +411,13 @@ fn test_provider_error_display() {
         "API key not configured for provider `openai`"
     );
     assert_eq!(
-        format!("{}", ProviderError::RequestFailed {
-            message: "timeout".into(),
-            source: None,
-        }),
+        format!(
+            "{}",
+            ProviderError::RequestFailed {
+                message: "timeout".into(),
+                source: None,
+            }
+        ),
         "Request failed: timeout"
     );
     assert_eq!(
@@ -400,7 +438,10 @@ fn test_provider_error_display() {
 fn test_provider_error_request_failed() {
     let err = ProviderError::request_failed("network error");
     match err {
-        ProviderError::RequestFailed { message, source: None } => {
+        ProviderError::RequestFailed {
+            message,
+            source: None,
+        } => {
             assert_eq!(message, "network error");
         }
         _ => panic!("Expected RequestFailed"),

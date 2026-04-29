@@ -341,12 +341,7 @@ mod tests {
     fn test_merge_with_cli_partial_overrides() {
         let config_file = AppConfigFile::default();
         // Only override provider; model/thinking/max_turns should stay at defaults
-        let merged = config_file.merge_with_cli(
-            Some("deepseek"),
-            None,
-            None,
-            None,
-        );
+        let merged = config_file.merge_with_cli(Some("deepseek"), None, None, None);
 
         assert_eq!(merged.default_model.provider, "deepseek");
         // id should remain from default

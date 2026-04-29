@@ -13,7 +13,12 @@ fn test_model() -> ModelInfo {
 }
 
 fn sample_header(session_id: &str, cwd: &str) -> SessionHeader {
-    SessionHeader::new(session_id.into(), cwd.into(), test_model(), ThinkingLevel::Medium)
+    SessionHeader::new(
+        session_id.into(),
+        cwd.into(),
+        test_model(),
+        ThinkingLevel::Medium,
+    )
 }
 
 fn sample_message(id: &str, role: MessageRole, text: &str) -> Message {
@@ -147,7 +152,10 @@ async fn test_session_store_update_header_preserves_messages() {
     store.create_session(&header).await.unwrap();
 
     let msg = sample_message("msg_keep", MessageRole::User, "keep me");
-    store.append_message("ses_preserve_test", &msg).await.unwrap();
+    store
+        .append_message("ses_preserve_test", &msg)
+        .await
+        .unwrap();
 
     let mut updated = header;
     updated.cwd = "/newproj".into();

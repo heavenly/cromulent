@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use tokio_util::sync::CancellationToken;
 use regex::Regex;
+use tokio_util::sync::CancellationToken;
 
 use crate::protocol::types::{ContentBlock, ToolContext, ToolDefinition, ToolResult};
 use crate::tools::registry::Tool;
@@ -65,7 +65,9 @@ impl Tool for GrepTool {
         let pattern_str = arguments
             .get("pattern")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArguments("Missing required 'pattern' argument".into()))?;
+            .ok_or_else(|| {
+                ToolError::InvalidArguments("Missing required 'pattern' argument".into())
+            })?;
 
         let is_literal = arguments
             .get("literal")
@@ -95,9 +97,7 @@ impl Tool for GrepTool {
             .map(|p| ctx.cwd.join(p))
             .unwrap_or_else(|| ctx.cwd.clone());
 
-        let glob_filter = arguments
-            .get("glob")
-            .and_then(|v| v.as_str());
+        let glob_filter = arguments.get("glob").and_then(|v| v.as_str());
 
         if cancel.is_cancelled() {
             return Err(ToolError::Cancelled);
@@ -142,7 +142,10 @@ impl Tool for GrepTool {
 
             // Apply glob filter
             if let Some(glob) = glob_filter {
-                let rel_path = entry.path().strip_prefix(&search_path).unwrap_or(entry.path());
+                let rel_path = entry
+                    .path()
+                    .strip_prefix(&search_path)
+                    .unwrap_or(entry.path());
                 if !simple_glob_match(glob, rel_path.to_string_lossy().as_ref()) {
                     continue;
                 }
@@ -185,7 +188,12 @@ impl Tool for GrepTool {
                 let ctx_end = (line_idx + 1 + context_lines).min(lines.len());
 
                 let mut block = String::new();
-                block.push_str(&format!("{} (lines {}-{}):\n", entry.path().display(), ctx_start + 1, ctx_end));
+                block.push_str(&format!(
+                    "{} (lines {}-{}):\n",
+                    entry.path().display(),
+                    ctx_start + 1,
+                    ctx_end
+                ));
                 for ci in ctx_start..ctx_end {
                     let prefix = if ci == *line_idx { ">" } else { " " };
                     block.push_str(&format!("{}{}: {}\n", prefix, ci + 1, lines[ci]));
@@ -214,7 +222,10 @@ impl Tool for GrepTool {
             });
         }
 
-        let mut output = format!("Found {} match(es) for pattern: {pattern_str}\n\n", match_count);
+        let mut output = format!(
+            "Found {} match(es) for pattern: {pattern_str}\n\n",
+            match_count
+        );
         output.push_str(&results.join(""));
 
         if match_count >= max_matches {

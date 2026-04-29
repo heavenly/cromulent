@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::providers::{LlmProvider, ProviderError};
 use crate::protocol::types::{ProviderEvent, ProviderRequest};
+use crate::providers::{LlmProvider, ProviderError};
 
 /// Fake provider for testing.
 ///
@@ -26,7 +26,9 @@ impl FakeProvider {
 
     /// Create a provider that emits the given events in sequence.
     pub fn scripted(events: Vec<ProviderEvent>) -> Self {
-        Self { script: Some(events) }
+        Self {
+            script: Some(events),
+        }
     }
 }
 

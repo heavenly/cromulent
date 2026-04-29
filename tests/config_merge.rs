@@ -1,5 +1,5 @@
 use cromulent::app::state::AppConfig;
-use cromulent::auth::config::{AppConfigFile, ProviderAuthConfig, load_config};
+use cromulent::auth::config::{load_config, AppConfigFile, ProviderAuthConfig};
 use cromulent::protocol::types::{ModelInfo, ThinkingLevel};
 
 // -----------------------------------------------------------------------

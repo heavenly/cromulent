@@ -55,7 +55,9 @@ impl CredentialCache {
 
 /// Default path for cached Codex credentials.
 pub fn default_credentials_path() -> PathBuf {
-    crate::util::fs::default_config_dir().join("auth").join("codex.json")
+    crate::util::fs::default_config_dir()
+        .join("auth")
+        .join("codex.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -79,7 +81,10 @@ pub async fn load_cached_credentials(
     if cache.schema_version != 1 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Unsupported credential schema version: {}", cache.schema_version),
+            format!(
+                "Unsupported credential schema version: {}",
+                cache.schema_version
+            ),
         ));
     }
 
@@ -140,9 +145,11 @@ pub async fn refresh_credentials(
 /// Returns `Ok(true)` if the token is expired, `Ok(false)` if still valid,
 /// or `Err` if the `expires_at` field cannot be parsed.
 pub fn is_expired(credentials: &CodexCredentials) -> Result<bool, CodexAuthError> {
-    let expires_at = chrono::DateTime::parse_from_rfc3339(&credentials.expires_at)
-        .map_err(|_| CodexAuthError::Expired {
-            expires_at: credentials.expires_at.clone(),
+    let expires_at =
+        chrono::DateTime::parse_from_rfc3339(&credentials.expires_at).map_err(|_| {
+            CodexAuthError::Expired {
+                expires_at: credentials.expires_at.clone(),
+            }
         })?;
     let now = chrono::Utc::now();
     Ok(now > expires_at)

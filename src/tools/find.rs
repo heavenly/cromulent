@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use tokio_util::sync::CancellationToken;
 use regex::Regex;
+use tokio_util::sync::CancellationToken;
 
 use crate::protocol::types::{ContentBlock, ToolContext, ToolDefinition, ToolResult};
 use crate::tools::registry::Tool;
@@ -49,7 +49,9 @@ impl Tool for FindTool {
         let pattern_str = arguments
             .get("pattern")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArguments("Missing required 'pattern' argument".into()))?;
+            .ok_or_else(|| {
+                ToolError::InvalidArguments("Missing required 'pattern' argument".into())
+            })?;
 
         let max_results = arguments
             .get("limit")
@@ -92,7 +94,10 @@ impl Tool for FindTool {
                 continue;
             }
 
-            let rel_path = entry.path().strip_prefix(&search_path).unwrap_or(entry.path());
+            let rel_path = entry
+                .path()
+                .strip_prefix(&search_path)
+                .unwrap_or(entry.path());
             let rel_str = rel_path.to_string_lossy();
 
             if re.is_match(rel_str.as_ref()) {
@@ -117,7 +122,10 @@ impl Tool for FindTool {
             });
         }
 
-        let mut output = format!("Found {} file(s) matching pattern: {pattern_str}\n\n", count);
+        let mut output = format!(
+            "Found {} file(s) matching pattern: {pattern_str}\n\n",
+            count
+        );
         for (i, path) in results.iter().enumerate() {
             output.push_str(&format!("{}. {}\n", i + 1, path));
         }

@@ -50,9 +50,7 @@ pub async fn export_session(
 }
 
 /// Load a session from a portable JSON export file.
-pub async fn load_export(
-    path: impl AsRef<Path>,
-) -> std::io::Result<LoadedSessionState> {
+pub async fn load_export(path: impl AsRef<Path>) -> std::io::Result<LoadedSessionState> {
     let content = tokio::fs::read_to_string(path.as_ref()).await?;
     let export: SessionExport = serde_json::from_str(&content)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -60,7 +58,10 @@ pub async fn load_export(
     if export.schema_version != 1 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Unsupported export schema version: {}", export.schema_version),
+            format!(
+                "Unsupported export schema version: {}",
+                export.schema_version
+            ),
         ));
     }
 

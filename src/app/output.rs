@@ -1,7 +1,7 @@
-use tokio::sync::mpsc;
-use crate::transport::writer::OutputItem;
 use crate::protocol::events::ServerEvent;
 use crate::protocol::responses::CommandResponse;
+use crate::transport::writer::OutputItem;
+use tokio::sync::mpsc;
 
 /// Helper function to emit events via the output queue
 pub fn emit_event(tx: &mpsc::UnboundedSender<OutputItem>, event: ServerEvent) {

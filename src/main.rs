@@ -1,11 +1,11 @@
+use clap::Parser;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
-use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-mod app;
 mod agent;
+mod app;
 mod auth;
 mod process;
 mod protocol;
@@ -63,8 +63,7 @@ async fn main() {
     // Initialize tracing to stderr
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
@@ -151,13 +150,7 @@ async fn main() {
     // Build shared app state
     // ------------------------------------------------------------------
 
-    let state = app::state::AppState::new(
-        loaded_session,
-        config,
-        model,
-        thinking,
-        cwd.clone(),
-    );
+    let state = app::state::AppState::new(loaded_session, config, model, thinking, cwd.clone());
     let shared_state: app::state::SharedAppState = Arc::new(Mutex::new(state));
 
     // ------------------------------------------------------------------
@@ -238,16 +231,20 @@ async fn setup_codex() -> std::io::Result<()> {
     let access_token = match std::env::var("CODEX_ACCESS_TOKEN") {
         Ok(token) if !token.is_empty() => token,
         _ => {
-            eprintln!("Created Codex auth directory at {}", path.parent().unwrap_or_else(|| std::path::Path::new(".")).display());
+            eprintln!(
+                "Created Codex auth directory at {}",
+                path.parent()
+                    .unwrap_or_else(|| std::path::Path::new("."))
+                    .display()
+            );
             eprintln!("Set CODEX_ACCESS_TOKEN and rerun `cromulent --setup-codex` to write cached credentials.");
             eprintln!("Optional: CODEX_REFRESH_TOKEN, CODEX_EXPIRES_AT, CODEX_SCOPE");
             return Ok(());
         }
     };
 
-    let expires_at = std::env::var("CODEX_EXPIRES_AT").unwrap_or_else(|_| {
-        (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339()
-    });
+    let expires_at = std::env::var("CODEX_EXPIRES_AT")
+        .unwrap_or_else(|_| (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339());
 
     let credentials = auth::codex::CodexCredentials {
         access_token,

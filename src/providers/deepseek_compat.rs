@@ -183,7 +183,11 @@ fn convert_message(message: &LlmMessage) -> Vec<serde_json::Value> {
     for block in &message.content {
         match block {
             LlmContentBlock::Text { text } => text_parts.push(text.clone()),
-            LlmContentBlock::ToolCall { id, name, arguments } => {
+            LlmContentBlock::ToolCall {
+                id,
+                name,
+                arguments,
+            } => {
                 tool_calls.push(serde_json::json!({
                     "id": id,
                     "type": "function",
@@ -193,7 +197,11 @@ fn convert_message(message: &LlmMessage) -> Vec<serde_json::Value> {
                     }
                 }));
             }
-            LlmContentBlock::ToolResult { tool_call_id, content, is_error } => {
+            LlmContentBlock::ToolResult {
+                tool_call_id,
+                content,
+                is_error,
+            } => {
                 out.push(serde_json::json!({
                     "role": "tool",
                     "tool_call_id": tool_call_id,
@@ -204,7 +212,11 @@ fn convert_message(message: &LlmMessage) -> Vec<serde_json::Value> {
     }
 
     if !text_parts.is_empty() || !tool_calls.is_empty() {
-        let role = if message.role == "tool" { "user" } else { message.role.as_str() };
+        let role = if message.role == "tool" {
+            "user"
+        } else {
+            message.role.as_str()
+        };
         let mut item = serde_json::json!({
             "role": role,
             "content": text_parts.join("\n"),
@@ -221,14 +233,16 @@ fn convert_message(message: &LlmMessage) -> Vec<serde_json::Value> {
 fn convert_tools(tools: &[ToolDefinition]) -> Vec<serde_json::Value> {
     tools
         .iter()
-        .map(|tool| serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": tool.name,
-                "description": tool.description,
-                "parameters": tool.input_schema,
-            }
-        }))
+        .map(|tool| {
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.input_schema,
+                }
+            })
+        })
         .collect()
 }
 
@@ -261,7 +275,9 @@ fn process_sse_line(
             .get("message")
             .and_then(|m| m.as_str())
             .unwrap_or_else(|| err.as_str().unwrap_or("DeepSeek error"));
-        let _ = tx.send(ProviderEvent::Error { message: message.to_string() });
+        let _ = tx.send(ProviderEvent::Error {
+            message: message.to_string(),
+        });
         return;
     }
 
@@ -276,7 +292,10 @@ fn process_sse_line(
             .or_else(|| usage.get("output_tokens"))
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
-        let _ = tx.send(ProviderEvent::Usage { input_tokens, output_tokens });
+        let _ = tx.send(ProviderEvent::Usage {
+            input_tokens,
+            output_tokens,
+        });
     }
 
     let Some(choice) = value.get("choices").and_then(|c| c.get(0)) else {
@@ -286,13 +305,17 @@ fn process_sse_line(
     if let Some(delta) = choice.get("delta") {
         if let Some(content) = delta.get("content").and_then(|v| v.as_str()) {
             if !content.is_empty() {
-                let _ = tx.send(ProviderEvent::TextDelta { text: content.to_string() });
+                let _ = tx.send(ProviderEvent::TextDelta {
+                    text: content.to_string(),
+                });
             }
         }
 
         if let Some(reasoning) = delta.get("reasoning_content").and_then(|v| v.as_str()) {
             if !reasoning.is_empty() {
-                let _ = tx.send(ProviderEvent::ThinkingDelta { text: reasoning.to_string() });
+                let _ = tx.send(ProviderEvent::ThinkingDelta {
+                    text: reasoning.to_string(),
+                });
             }
         }
 
@@ -385,7 +408,13 @@ mod tests {
             &tx,
             &mut open,
         );
-        assert!(matches!(rx.try_recv().unwrap(), ProviderEvent::ToolCallStarted { .. }));
-        assert!(matches!(rx.try_recv().unwrap(), ProviderEvent::ToolCallArgumentsDelta { .. }));
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            ProviderEvent::ToolCallStarted { .. }
+        ));
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            ProviderEvent::ToolCallArgumentsDelta { .. }
+        ));
     }
 }

@@ -6,9 +6,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::protocol::events::ServerEvent;
 use crate::protocol::types::{ContentBlock, ToolContext, ToolDefinition, ToolResult};
-use crate::transport::writer::OutputItem;
 use crate::tools::registry::Tool;
 use crate::tools::ToolError;
+use crate::transport::writer::OutputItem;
 
 /// Executes a shell command using tokio::process::Command.
 /// Output is streamed via ServerEvent::BashOutput and ServerEvent::BashDone.
@@ -51,7 +51,9 @@ impl Tool for BashTool {
         let cmd_str = arguments
             .get("command")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArguments("Missing required 'command' argument".into()))?;
+            .ok_or_else(|| {
+                ToolError::InvalidArguments("Missing required 'command' argument".into())
+            })?;
 
         let _timeout_secs = arguments.get("timeout").and_then(|v| v.as_i64());
 
@@ -156,14 +158,17 @@ impl Tool for BashTool {
         }
 
         // Wait for process to exit
-        let status = child.wait().await.map_err(|e| {
-            ToolError::Other(format!("Failed to wait for command: {e}"))
-        })?;
+        let status = child
+            .wait()
+            .await
+            .map_err(|e| ToolError::Other(format!("Failed to wait for command: {e}")))?;
         let exit_code = status.code().unwrap_or(-1);
 
         // Emit bash_done
         let ev = ServerEvent::BashDone { exit_code };
-        let _ = ctx.event_tx.send(OutputItem::Event(serde_json::to_value(ev).expect("BashDone serialization failed")));
+        let _ = ctx.event_tx.send(OutputItem::Event(
+            serde_json::to_value(ev).expect("BashDone serialization failed"),
+        ));
 
         let stdout_trimmed = stdout_buf.trim().to_string();
         let stderr_trimmed = stderr_buf.trim().to_string();

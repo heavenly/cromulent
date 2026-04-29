@@ -10,9 +10,9 @@ use crate::process::bash_runner::BashRunner;
 use crate::protocol::events::ServerEvent;
 use crate::protocol::responses::{CommandResponse, StateSnapshot};
 use crate::protocol::types::{AskUserResponse, ModelInfo, ThinkingLevel};
+use crate::providers::ProviderManager;
 use crate::session::store::{SessionHeader, SessionStore};
 use crate::tools::ask_user::AskManagerHandle;
-use crate::providers::ProviderManager;
 use crate::tools::registry::ToolRegistry;
 use crate::transport::writer::OutputItem;
 use crate::util::ids::{generate_run_id, generate_session_id};
@@ -64,7 +64,13 @@ impl AppRuntime {
         let (messages, model, thinking_level, cwd, session_id, max_turns) = {
             let mut state = self.state.lock().await;
             if state.is_running() {
-                respond(&self.output_tx, CommandResponse::err(id, "A run is already in progress. Abort first or wait for it to complete."));
+                respond(
+                    &self.output_tx,
+                    CommandResponse::err(
+                        id,
+                        "A run is already in progress. Abort first or wait for it to complete.",
+                    ),
+                );
                 return;
             }
 
@@ -85,7 +91,11 @@ impl AppRuntime {
             )
         };
 
-        if let Err(e) = self.session_store.append_message(&session_id, &user_msg).await {
+        if let Err(e) = self
+            .session_store
+            .append_message(&session_id, &user_msg)
+            .await
+        {
             tracing::error!("Failed to persist user message: {e}");
         }
 
@@ -122,7 +132,8 @@ impl AppRuntime {
 
             let mut state = state.lock().await;
             state.current_session.messages = result.messages;
-            if matches!(&state.run_state, RunState::Running { run_id: active, .. } if active == &run_id) {
+            if matches!(&state.run_state, RunState::Running { run_id: active, .. } if active == &run_id)
+            {
                 state.run_state = RunState::Idle;
             }
         });
@@ -185,19 +196,20 @@ impl AppRuntime {
     }
 
     /// Handle `set_model` — allowed only when idle.
-    pub async fn handle_set_model(
-        &self,
-        id: Option<String>,
-        provider: String,
-        model_id: String,
-    ) {
+    pub async fn handle_set_model(&self, id: Option<String>, provider: String, model_id: String) {
         let is_running = {
             let state = self.state.lock().await;
             state.is_running()
         };
 
         if is_running {
-            respond(&self.output_tx, CommandResponse::err(id, "Cannot change model while a run is active. Abort first."));
+            respond(
+                &self.output_tx,
+                CommandResponse::err(
+                    id,
+                    "Cannot change model while a run is active. Abort first.",
+                ),
+            );
             return;
         }
 
@@ -253,7 +265,13 @@ impl AppRuntime {
         };
 
         if is_running {
-            respond(&self.output_tx, CommandResponse::err(id, "Cannot change thinking level while a run is active. Abort first."));
+            respond(
+                &self.output_tx,
+                CommandResponse::err(
+                    id,
+                    "Cannot change thinking level while a run is active. Abort first.",
+                ),
+            );
             return;
         }
 
@@ -299,7 +317,10 @@ impl AppRuntime {
         };
 
         if is_running {
-            respond(&self.output_tx, CommandResponse::err(id, "Cannot cycle model while a run is active. Abort first."));
+            respond(
+                &self.output_tx,
+                CommandResponse::err(id, "Cannot cycle model while a run is active. Abort first."),
+            );
             return;
         }
 
@@ -358,7 +379,10 @@ impl AppRuntime {
         };
 
         if let Err(e) = self.session_store.update_header(&header).await {
-            respond(&self.output_tx, CommandResponse::err(id, format!("Failed to update session header: {e}")));
+            respond(
+                &self.output_tx,
+                CommandResponse::err(id, format!("Failed to update session header: {e}")),
+            );
             return;
         }
 
@@ -372,10 +396,10 @@ impl AppRuntime {
             },
         );
 
-        respond(&self.output_tx, CommandResponse::ok_with_data(
-            id,
-            serde_json::json!({ "model": new_model }),
-        ));
+        respond(
+            &self.output_tx,
+            CommandResponse::ok_with_data(id, serde_json::json!({ "model": new_model })),
+        );
     }
 
     /// Handle `list_sessions`.
@@ -386,7 +410,10 @@ impl AppRuntime {
                 respond(&self.output_tx, CommandResponse::ok_with_data(id, data));
             }
             Err(e) => {
-                respond(&self.output_tx, CommandResponse::err(id, format!("Failed to list sessions: {e}")));
+                respond(
+                    &self.output_tx,
+                    CommandResponse::err(id, format!("Failed to list sessions: {e}")),
+                );
             }
         }
     }
@@ -399,7 +426,13 @@ impl AppRuntime {
         };
 
         if is_running {
-            respond(&self.output_tx, CommandResponse::err(id, "Cannot load session while a run is active. Abort first."));
+            respond(
+                &self.output_tx,
+                CommandResponse::err(
+                    id,
+                    "Cannot load session while a run is active. Abort first.",
+                ),
+            );
             return;
         }
 
@@ -435,7 +468,10 @@ impl AppRuntime {
                 respond(&self.output_tx, CommandResponse::ok(id));
             }
             Err(e) => {
-                respond(&self.output_tx, CommandResponse::err(id, format!("Failed to load session: {e}")));
+                respond(
+                    &self.output_tx,
+                    CommandResponse::err(id, format!("Failed to load session: {e}")),
+                );
             }
         }
     }
@@ -454,7 +490,13 @@ impl AppRuntime {
         };
 
         if is_running {
-            respond(&self.output_tx, CommandResponse::err(id, "Cannot create new session while a run is active. Abort first."));
+            respond(
+                &self.output_tx,
+                CommandResponse::err(
+                    id,
+                    "Cannot create new session while a run is active. Abort first.",
+                ),
+            );
             return;
         }
 
@@ -467,7 +509,10 @@ impl AppRuntime {
         );
 
         if let Err(e) = self.session_store.create_session(&new_header).await {
-            respond(&self.output_tx, CommandResponse::err(id, format!("Failed to create session: {e}")));
+            respond(
+                &self.output_tx,
+                CommandResponse::err(id, format!("Failed to create session: {e}")),
+            );
             return;
         }
 
@@ -491,10 +536,10 @@ impl AppRuntime {
             },
         );
 
-        respond(&self.output_tx, CommandResponse::ok_with_data(
-            id,
-            serde_json::json!({ "sessionId": new_session_id }),
-        ));
+        respond(
+            &self.output_tx,
+            CommandResponse::ok_with_data(id, serde_json::json!({ "sessionId": new_session_id })),
+        );
     }
 
     /// Handle `fork_session` — allowed only when idle.
@@ -502,7 +547,13 @@ impl AppRuntime {
         let (source_session_id, model, thinking, cwd) = {
             let state = self.state.lock().await;
             if state.is_running() {
-                respond(&self.output_tx, CommandResponse::err(id, "Cannot fork session while a run is active. Abort first."));
+                respond(
+                    &self.output_tx,
+                    CommandResponse::err(
+                        id,
+                        "Cannot fork session while a run is active. Abort first.",
+                    ),
+                );
                 return;
             }
             (
@@ -541,13 +592,19 @@ impl AppRuntime {
                     },
                 );
 
-                respond(&self.output_tx, CommandResponse::ok_with_data(
-                    id,
-                    serde_json::json!({ "sessionId": new_session_id }),
-                ));
+                respond(
+                    &self.output_tx,
+                    CommandResponse::ok_with_data(
+                        id,
+                        serde_json::json!({ "sessionId": new_session_id }),
+                    ),
+                );
             }
             Err(e) => {
-                respond(&self.output_tx, CommandResponse::err(id, format!("Failed to fork session: {e}")));
+                respond(
+                    &self.output_tx,
+                    CommandResponse::err(id, format!("Failed to fork session: {e}")),
+                );
             }
         }
     }
@@ -566,10 +623,13 @@ impl AppRuntime {
         };
         drop(state);
 
-        respond(&self.output_tx, CommandResponse::ok_with_data(
-            id,
-            serde_json::to_value(snapshot).expect("StateSnapshot serialization failed"),
-        ));
+        respond(
+            &self.output_tx,
+            CommandResponse::ok_with_data(
+                id,
+                serde_json::to_value(snapshot).expect("StateSnapshot serialization failed"),
+            ),
+        );
     }
 
     /// Handle `get_messages`.
@@ -598,7 +658,10 @@ impl AppRuntime {
         let path = std::path::Path::new(&output_path);
         match tokio::fs::write(path, serde_json::to_string_pretty(&export).unwrap()).await {
             Ok(()) => respond(&self.output_tx, CommandResponse::ok(id)),
-            Err(e) => respond(&self.output_tx, CommandResponse::err(id, format!("Failed to export session: {e}"))),
+            Err(e) => respond(
+                &self.output_tx,
+                CommandResponse::err(id, format!("Failed to export session: {e}")),
+            ),
         }
     }
 
@@ -608,7 +671,10 @@ impl AppRuntime {
         {
             let mut slot = self.bash_cancel.lock().unwrap();
             if slot.is_some() {
-                respond(&self.output_tx, CommandResponse::err(id, "A raw bash command is already running."));
+                respond(
+                    &self.output_tx,
+                    CommandResponse::err(id, "A raw bash command is already running."),
+                );
                 return;
             }
             *slot = Some(cancel.clone());
@@ -616,27 +682,35 @@ impl AppRuntime {
 
         let result = {
             let runner = self.bash_runner.lock().unwrap().clone();
-            runner.execute_with_cancel(&command, &self.output_tx, cancel).await
+            runner
+                .execute_with_cancel(&command, &self.output_tx, cancel)
+                .await
         };
 
         self.bash_cancel.lock().unwrap().take();
 
         match result {
             Ok(exit_code) => {
-                respond(&self.output_tx, CommandResponse::ok_with_data(
-                    id,
-                    serde_json::json!({ "exitCode": exit_code }),
-                ));
+                respond(
+                    &self.output_tx,
+                    CommandResponse::ok_with_data(id, serde_json::json!({ "exitCode": exit_code })),
+                );
             }
             Err(e) => {
-                respond(&self.output_tx, CommandResponse::err(id, format!("Bash execution failed: {e}")));
+                respond(
+                    &self.output_tx,
+                    CommandResponse::err(id, format!("Bash execution failed: {e}")),
+                );
             }
         }
     }
 
     /// Handle an unrecognized command type.
     pub async fn handle_invalid_command(&self) {
-        respond(&self.output_tx, CommandResponse::err(None, "Unrecognized command type"));
+        respond(
+            &self.output_tx,
+            CommandResponse::err(None, "Unrecognized command type"),
+        );
     }
 
     /// Handle `shutdown`.

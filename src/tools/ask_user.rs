@@ -2,17 +2,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tokio::sync::Mutex;
 use tokio::sync::oneshot;
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::protocol::events::ServerEvent;
 use crate::protocol::types::{
     AskOption, AskUserResponse, ContentBlock, ToolContext, ToolDefinition, ToolResult,
 };
-use crate::transport::writer::OutputItem;
 use crate::tools::registry::Tool;
 use crate::tools::ToolError;
+use crate::transport::writer::OutputItem;
 use crate::util::ids::generate_ask_id;
 
 /// Cloneable handle for tools and runtime to manage pending asks.
@@ -48,7 +48,9 @@ impl AskManagerHandle {
     pub fn resolve(&self, ask_id: &str, response: AskUserResponse) -> Result<(), String> {
         let mut state = self.inner.blocking_lock();
         match state.pending.remove(ask_id) {
-            Some(sender) => sender.send(response).map_err(|_| "Receiver dropped".to_string()),
+            Some(sender) => sender
+                .send(response)
+                .map_err(|_| "Receiver dropped".to_string()),
             None => Err(format!("Unknown askId: {ask_id}")),
         }
     }
@@ -128,7 +130,9 @@ impl Tool for AskUserTool {
         let question = arguments
             .get("question")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArguments("Missing required 'question' argument".into()))?
+            .ok_or_else(|| {
+                ToolError::InvalidArguments("Missing required 'question' argument".into())
+            })?
             .to_string();
 
         let context = arguments
@@ -144,7 +148,10 @@ impl Tool for AskUserTool {
                     .filter_map(|o| {
                         Some(AskOption {
                             title: o.get("title")?.as_str()?.to_string(),
-                            description: o.get("description").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                            description: o
+                                .get("description")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
                         })
                     })
                     .collect()
@@ -166,9 +173,7 @@ impl Tool for AskUserTool {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let timeout_ms = arguments
-            .get("timeoutMs")
-            .and_then(|v| v.as_u64());
+        let timeout_ms = arguments.get("timeoutMs").and_then(|v| v.as_u64());
 
         // Generate a unique ask ID
         let ask_id = generate_ask_id();
@@ -188,7 +193,9 @@ impl Tool for AskUserTool {
             allow_comment,
             timeout_ms,
         };
-        let _ = ctx.event_tx.send(OutputItem::Event(serde_json::to_value(ev).expect("Ask event serialization failed")));
+        let _ = ctx.event_tx.send(OutputItem::Event(
+            serde_json::to_value(ev).expect("Ask event serialization failed"),
+        ));
 
         // Wait for the response or cancellation
         let response = tokio::select! {

@@ -2,7 +2,10 @@ use cromulent::protocol::types::AskUserResponse;
 use cromulent::tools::ask_user::AskManagerHandle;
 
 /// Helper: block on the async register call to get a oneshot Receiver.
-fn register_sync(manager: &AskManagerHandle, ask_id: &str) -> tokio::sync::oneshot::Receiver<AskUserResponse> {
+fn register_sync(
+    manager: &AskManagerHandle,
+    ask_id: &str,
+) -> tokio::sync::oneshot::Receiver<AskUserResponse> {
     let id = ask_id.to_string();
     tokio::runtime::Runtime::new()
         .unwrap()

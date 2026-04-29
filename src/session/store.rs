@@ -67,10 +67,7 @@ impl SessionStore {
     }
 
     /// Create a new session file with a header
-    pub async fn create_session(
-        &self,
-        header: &SessionHeader,
-    ) -> std::io::Result<()> {
+    pub async fn create_session(&self, header: &SessionHeader) -> std::io::Result<()> {
         self.ensure_dir().await?;
         let path = self.session_path(&header.session_id);
         let header_json = serde_json::to_string(header)
@@ -79,10 +76,7 @@ impl SessionStore {
     }
 
     /// Load a session from disk, returning header and messages
-    pub async fn load_session(
-        &self,
-        session_id: &str,
-    ) -> std::io::Result<LoadedSessionState> {
+    pub async fn load_session(&self, session_id: &str) -> std::io::Result<LoadedSessionState> {
         let path = self.session_path(session_id);
         let content = tokio::fs::read_to_string(&path).await?;
         let mut lines: Vec<&str> = content.lines().collect();
@@ -124,11 +118,7 @@ impl SessionStore {
     }
 
     /// Append a message to the session file
-    pub async fn append_message(
-        &self,
-        session_id: &str,
-        message: &Message,
-    ) -> std::io::Result<()> {
+    pub async fn append_message(&self, session_id: &str, message: &Message) -> std::io::Result<()> {
         let path = self.session_path(session_id);
         let mut file = tokio::fs::OpenOptions::new()
             .create(true)
@@ -141,10 +131,7 @@ impl SessionStore {
     }
 
     /// Update the header in a session file atomically
-    pub async fn update_header(
-        &self,
-        header: &SessionHeader,
-    ) -> std::io::Result<()> {
+    pub async fn update_header(&self, header: &SessionHeader) -> std::io::Result<()> {
         let path = self.session_path(&header.session_id);
         let header_json = serde_json::to_string(header)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
@@ -206,8 +193,7 @@ impl SessionStore {
             )
         })?;
 
-        let forked_messages: Vec<Message> =
-            source.messages[..=idx].to_vec();
+        let forked_messages: Vec<Message> = source.messages[..=idx].to_vec();
 
         // Write the new session
         self.create_session(new_header).await?;

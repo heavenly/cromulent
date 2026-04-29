@@ -35,7 +35,9 @@ impl TransportReader {
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to parse command; ignoring malformed JSONL line: {e}");
+                        tracing::warn!(
+                            "Failed to parse command; ignoring malformed JSONL line: {e}"
+                        );
                         continue;
                     }
                 }

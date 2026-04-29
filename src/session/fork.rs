@@ -51,10 +51,10 @@ pub fn fork_session_helper(
         session_id: crate::util::ids::generate_session_id(),
         created: now.clone(),
         updated: now,
-        cwd: options
-            .cwd
-            .unwrap_or_else(|| session.header.cwd.clone()),
-        model: options.model.unwrap_or_else(|| session.header.model.clone()),
+        cwd: options.cwd.unwrap_or_else(|| session.header.cwd.clone()),
+        model: options
+            .model
+            .unwrap_or_else(|| session.header.model.clone()),
         thinking_level: options
             .thinking_level
             .clone()

@@ -28,7 +28,10 @@ pub enum ProviderError {
     ApiKeyMissing(String),
 
     #[error("Request failed: {message}")]
-    RequestFailed { message: String, source: Option<Box<dyn std::error::Error + Send + Sync>> },
+    RequestFailed {
+        message: String,
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
 
     #[error("Stream ended unexpectedly")]
     StreamEnded,
