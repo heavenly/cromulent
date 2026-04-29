@@ -152,6 +152,33 @@ impl SessionStore {
         tokio::fs::rename(&tmp_path, &path).await
     }
 
+    /// List all session IDs with their last-updated timestamps
+    pub async fn list_session_headers(&self) -> std::io::Result<Vec<(String, String)>> {
+        let mut entries = tokio::fs::read_dir(&self.sessions_dir).await?;
+        let mut sessions = Vec::new();
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "jsonl") {
+                if let Some(stem) = path.file_stem() {
+                    // Read first line to get the header's updated timestamp
+                    if let Ok(content) = tokio::fs::read_to_string(&path).await {
+                        if let Some(first_line) = content.lines().next() {
+                            let updated = serde_json::from_str::<serde_json::Value>(first_line)
+                                .ok()
+                                .and_then(|v| v.get("updated").cloned())
+                                .and_then(|v| v.as_str().map(String::from))
+                                .unwrap_or_else(|| "unknown".to_string());
+                            sessions.push((stem.to_string_lossy().to_string(), updated));
+                        }
+                    }
+                }
+            }
+        }
+        // Sort by updated descending (most recent first)
+        sessions.sort_by(|a, b| b.1.cmp(&a.1));
+        Ok(sessions)
+    }
+
     /// List all session IDs
     pub async fn list_sessions(&self) -> std::io::Result<Vec<String>> {
         let mut entries = tokio::fs::read_dir(&self.sessions_dir).await?;
@@ -167,6 +194,12 @@ impl SessionStore {
         sessions.sort();
         Ok(sessions)
     }
+    /// Delete a session file from disk.
+    pub async fn delete_session(&self, session_id: &str) -> std::io::Result<()> {
+        let path = self.session_path(session_id);
+        tokio::fs::remove_file(&path).await
+    }
+
 
     /// Create a new session by forking from an existing one
     pub async fn fork_session(

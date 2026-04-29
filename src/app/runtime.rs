@@ -409,8 +409,14 @@ impl AppRuntime {
 
     /// Handle `list_sessions`.
     pub async fn handle_list_sessions(&self, id: Option<String>) {
-        match self.session_store.list_sessions().await {
+        match self.session_store.list_session_headers().await {
             Ok(sessions) => {
+                let sessions: Vec<serde_json::Value> = sessions
+                    .into_iter()
+                    .map(|(sid, updated)| {
+                        serde_json::json!({"sessionId": sid, "updated": updated})
+                    })
+                    .collect();
                 let data = serde_json::json!({ "sessions": sessions });
                 respond(&self.output_tx, CommandResponse::ok_with_data(id, data));
             }
@@ -443,6 +449,18 @@ impl AppRuntime {
 
         match self.session_store.load_session(&session_id).await {
             Ok(loaded) => {
+                // If the current session is trivial (auto-created, no messages),
+                // delete it to avoid accumulating empty session files.
+                {
+                    let state = self.state.lock().await;
+                    if state.current_session.messages.is_empty() {
+                        let old_id = state.current_session.header.session_id.clone();
+                        drop(state);
+                        if let Err(e) = self.session_store.delete_session(&old_id).await {
+                            tracing::warn!(session_id = %old_id, error = %e, "Failed to delete trivial session");
+                        }
+                    }
+                }
                 let model;
                 let thinking_level;
                 let cwd;
