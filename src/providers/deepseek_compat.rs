@@ -274,12 +274,12 @@ fn convert_message(message: &LlmMessage) -> Vec<serde_json::Value> {
             "role": role,
             "content": text_parts.join("\n"),
         });
-        if role == "assistant" && (!thinking_parts.is_empty() || !tool_calls.is_empty()) {
-            // DeepSeek thinking-mode follow-up requests require assistant
-            // messages that led to tool calls to carry `reasoning_content`
-            // back. Some streamed tool-call turns may not expose reasoning
-            // deltas, so preserve captured reasoning when available and emit
-            // an empty field otherwise to keep the transcript shape valid.
+        if role == "assistant" {
+            // DeepSeek thinking-mode requires **every** assistant message in
+            // the conversation to carry `reasoning_content`.  If we captured
+            // thinking deltas we replay them; otherwise we emit the empty
+            // string so session-persisted messages (from prior runs that
+            // predate reasoning capture) still pass validation.
             item["reasoning_content"] = serde_json::Value::String(thinking_parts.join(""));
         }
         if !tool_calls.is_empty() {
@@ -503,6 +503,35 @@ mod tests {
         assert_eq!(msg["role"], "assistant");
         assert_eq!(msg["reasoning_content"], "reason");
         assert!(msg["tool_calls"].is_array());
+    }
+
+    #[test]
+    fn test_convert_assistant_text_only_still_has_reasoning_content() {
+        let request = ProviderRequest {
+            model: crate::protocol::types::ModelInfo {
+                provider: "deepseek".into(),
+                id: "deepseek-v4-flash".into(),
+                display_name: String::new(),
+                context_window: 128_000,
+                supports_reasoning: true,
+                supports_tools: true,
+            },
+            system_prompt: "system".into(),
+            messages: vec![LlmMessage {
+                role: "assistant".into(),
+                content: vec![LlmContentBlock::Text {
+                    text: "Done!".into(),
+                }],
+            }],
+            tools: vec![],
+            thinking_level: crate::protocol::types::ThinkingLevel::Medium,
+            cwd: std::path::PathBuf::from("."),
+        };
+        let body = build_request_body(&request);
+        let msg = &body["messages"].as_array().unwrap()[1];
+        assert_eq!(msg["role"], "assistant");
+        assert_eq!(msg["reasoning_content"], "");
+        assert_eq!(msg["content"], "Done!");
     }
 
     #[test]

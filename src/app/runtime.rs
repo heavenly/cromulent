@@ -356,10 +356,10 @@ impl AppRuntime {
             },
             ModelInfo {
                 provider: "deepseek".to_string(),
-                id: "deepseek-chat".to_string(),
-                display_name: "DeepSeek Chat".to_string(),
+                id: "deepseek-v4-flash".to_string(),
+                display_name: "DeepSeek V4 Flash".to_string(),
                 context_window: 128_000,
-                supports_reasoning: false,
+                supports_reasoning: true,
                 supports_tools: true,
             },
         ];
