@@ -9,10 +9,12 @@ use crate::protocol::types::{ModelInfo, ProviderEvent, ProviderRequest};
 
 mod deepseek_compat;
 mod fake;
+mod openai_compat;
 mod openai_responses;
 
 pub use deepseek_compat::DeepSeekCompatProvider;
 pub use fake::FakeProvider;
+pub use openai_compat::OpenAiCompatProvider;
 pub use openai_responses::OpenAiResponsesProvider;
 
 // ---------------------------------------------------------------------------
@@ -124,6 +126,8 @@ impl ProviderManager {
 
     /// Build the default set of providers, resolving API keys from the
     /// given config file (falls back to env vars when config has no entry).
+    /// Also registers any additional providers defined in the config's
+    /// `providers` map as [`OpenAiCompatProvider`] instances.
     pub fn default_with_config(config: &crate::auth::config::AppConfigFile) -> Self {
         let mut mgr = Self::new();
         mgr.register("fake", Box::new(FakeProvider::default()));
@@ -137,7 +141,58 @@ impl ProviderManager {
             Box::new(DeepSeekCompatProvider::with_api_key(deepseek_key)),
         );
 
+        // Register any custom providers defined in config.json
+        mgr.register_custom_from_app_config(config);
+
         mgr
+    }
+
+    /// Register custom providers from the `providers` map in the app config.
+    /// Skips built-in names (`openai`, `deepseek`, `fake`) that already have
+    /// dedicated adapters.
+    pub fn register_custom_from_app_config(
+        &mut self,
+        config: &crate::auth::config::AppConfigFile,
+    ) {
+        let builtins: &[&str] = &["openai", "deepseek", "fake"];
+        for (name, auth) in &config.providers {
+            if builtins.contains(&name.as_str()) {
+                continue;
+            }
+            if self.has_provider(name) {
+                continue;
+            }
+            let api_key = auth.resolve_api_key(name);
+            let base_url = auth
+                .base_url
+                .clone()
+                .unwrap_or_else(|| format!("https://api.{name}.com/v1/chat/completions"));
+            self.register(
+                name,
+                Box::new(OpenAiCompatProvider::new(name.clone(), api_key, base_url)),
+            );
+        }
+    }
+
+    /// Register custom providers loaded from `~/.cromulent/providers.json`.
+    pub fn register_custom_from_providers_json(
+        &mut self,
+        config: &crate::auth::providers_config::ProvidersConfigFile,
+    ) {
+        for (name, auth) in &config.providers {
+            if self.has_provider(name) {
+                continue;
+            }
+            let api_key = auth.resolve_api_key(name);
+            let base_url = auth
+                .base_url
+                .clone()
+                .unwrap_or_else(|| format!("https://api.{name}.com/v1/chat/completions"));
+            self.register(
+                name,
+                Box::new(OpenAiCompatProvider::new(name.clone(), api_key, base_url)),
+            );
+        }
     }
 }
 
