@@ -6,7 +6,7 @@ use cromulent::protocol::types::{
     LlmContentBlock, LlmMessage, ModelInfo, ProviderEvent, ProviderRequest, ThinkingLevel,
 };
 use cromulent::providers::{
-    DeepSeekCompatProvider, FakeProvider, LlmProvider, OpenAiResponsesProvider, ProviderError,
+    OpenAiCompatProvider, FakeProvider, LlmProvider, OpenAiResponsesProvider, ProviderError,
     ProviderManager,
 };
 
@@ -43,7 +43,7 @@ fn test_provider_manager_default_has_providers() {
     let names = mgr.provider_names();
     assert!(names.contains(&"fake".to_string()));
     assert!(names.contains(&"openai".to_string()));
-    assert!(names.contains(&"deepseek".to_string()));
+    assert!(!names.contains(&"deepseek".to_string()));
 }
 
 #[test]
@@ -130,13 +130,15 @@ fn test_openai_api_key_present_does_not_stream_without_network() {
     );
 }
 
+
+
 // -----------------------------------------------------------------------
-// DeepSeekCompatProvider: API key missing
+// OpenAiCompatProvider: API key missing
 // -----------------------------------------------------------------------
 
 #[test]
-fn test_deepseek_api_key_missing() {
-    let provider = DeepSeekCompatProvider::with_api_key(None);
+fn test_openai_compat_api_key_missing() {
+    let provider = OpenAiCompatProvider::new("deepseek", None, "https://api.deepseek.com/chat/completions");
     assert!(!provider.is_configured());
 
     let cancel = CancellationToken::new();
@@ -148,10 +150,14 @@ fn test_deepseek_api_key_missing() {
     }
 }
 
+// -----------------------------------------------------------------------
+// OpenAiCompatProvider: API key present (no network)
+// -----------------------------------------------------------------------
+
 #[test]
-fn test_deepseek_api_key_present() {
+fn test_openai_compat_api_key_present() {
     let (provider, cancel) = (
-        DeepSeekCompatProvider::with_api_key(Some("sk-test-deepseek-key".to_string())),
+        OpenAiCompatProvider::new("deepseek", Some("sk-test-deepseek-key".to_string()), "https://api.deepseek.com/chat/completions"),
         CancellationToken::new(),
     );
     assert!(provider.is_configured());
@@ -168,7 +174,6 @@ fn test_deepseek_api_key_present() {
     let event2 = rt.block_on(rx.recv());
     assert!(matches!(event2, Some(ProviderEvent::Completed)));
 }
-
 // -----------------------------------------------------------------------
 // FakeProvider: default (no script)
 // -----------------------------------------------------------------------

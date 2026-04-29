@@ -196,15 +196,6 @@ impl Default for AppConfigFile {
             },
         );
         providers.insert(
-            "deepseek".to_string(),
-            ProviderAuthConfig {
-                api_key: None,
-                api_key_env: Some("DEEPSEEK_API_KEY".to_string()),
-                base_url: None,
-                default_model: Some("deepseek-chat".to_string()),
-            },
-        );
-        providers.insert(
             "opencode".to_string(),
             ProviderAuthConfig {
                 api_key: None,
@@ -238,7 +229,7 @@ mod tests {
     fn test_default_config_is_valid() {
         let config = AppConfigFile::default();
         assert!(config.providers.contains_key("openai"));
-        assert!(config.providers.contains_key("deepseek"));
+        assert!(!config.providers.contains_key("deepseek"));
         assert_eq!(config.max_turns, Some(40));
         assert_eq!(config.thinking_level, Some(ThinkingLevel::Medium));
     }
@@ -344,7 +335,7 @@ mod tests {
         assert_eq!(loaded.max_turns, config.max_turns);
         assert_eq!(loaded.thinking_level, config.thinking_level);
         assert!(loaded.providers.contains_key("openai"));
-        assert!(loaded.providers.contains_key("deepseek"));
+        assert!(!loaded.providers.contains_key("deepseek"));
     }
 
     #[test]
@@ -365,14 +356,14 @@ mod tests {
     fn test_merge_with_cli_overrides_model() {
         let config_file = AppConfigFile::default();
         let merged = config_file.merge_with_cli(
-            Some("deepseek"),
-            Some("deepseek-reasoner"),
+            Some("opencode"),
+            Some("opencode-reasoner"),
             Some(ThinkingLevel::High),
             Some(100),
         );
 
-        assert_eq!(merged.default_model.provider, "deepseek");
-        assert_eq!(merged.default_model.id, "deepseek-reasoner");
+        assert_eq!(merged.default_model.provider, "opencode");
+        assert_eq!(merged.default_model.id, "opencode-reasoner");
         assert_eq!(merged.default_thinking, ThinkingLevel::High);
         assert_eq!(merged.max_turns, 100);
     }
@@ -381,9 +372,9 @@ mod tests {
     fn test_merge_with_cli_partial_overrides() {
         let config_file = AppConfigFile::default();
         // Only override provider; model/thinking/max_turns should stay at defaults
-        let merged = config_file.merge_with_cli(Some("deepseek"), None, None, None);
+        let merged = config_file.merge_with_cli(Some("opencode"), None, None, None);
 
-        assert_eq!(merged.default_model.provider, "deepseek");
+        assert_eq!(merged.default_model.provider, "opencode");
         // id should remain from default
         assert_eq!(merged.default_model.id, "gpt-5.5");
         assert_eq!(merged.default_thinking, ThinkingLevel::Medium);

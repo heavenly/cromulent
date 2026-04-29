@@ -10,7 +10,7 @@ use cromulent::protocol::types::{ModelInfo, ThinkingLevel};
 fn test_config_file_default_has_expected_providers() {
     let config = AppConfigFile::default();
     assert!(config.providers.contains_key("openai"));
-    assert!(config.providers.contains_key("deepseek"));
+    assert!(!config.providers.contains_key("deepseek"));
     assert!(config.providers.contains_key("opencode"));
     assert_eq!(config.max_turns, Some(40));
     assert_eq!(config.thinking_level, Some(ThinkingLevel::Medium));
@@ -269,5 +269,5 @@ fn test_config_file_serde_roundtrip() {
     assert_eq!(back.max_turns, config.max_turns);
     assert_eq!(back.thinking_level, config.thinking_level);
     assert!(back.providers.contains_key("openai"));
-    assert!(back.providers.contains_key("deepseek"));
+    assert!(!back.providers.contains_key("deepseek"));
 }

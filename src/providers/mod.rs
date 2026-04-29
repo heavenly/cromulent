@@ -7,12 +7,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::protocol::types::{ModelInfo, ProviderEvent, ProviderRequest};
 
-mod deepseek_compat;
 mod fake;
 mod openai_compat;
 mod openai_responses;
 
-pub use deepseek_compat::DeepSeekCompatProvider;
 pub use fake::FakeProvider;
 pub use openai_compat::OpenAiCompatProvider;
 pub use openai_responses::OpenAiResponsesProvider;
@@ -61,7 +59,7 @@ impl ProviderError {
 /// A normalized LLM provider adapter.
 ///
 /// Implementations translate provider-specific streaming (OpenAI Responses API,
-/// DeepSeek compatible, etc.) into the internal [`ProviderEvent`] stream.
+/// OpenAI compatible, etc.) into the internal [`ProviderEvent`] stream.
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     /// Open a streaming request to the provider.
@@ -92,7 +90,7 @@ impl ProviderManager {
         }
     }
 
-    /// Register a provider under a name (e.g. `"openai"`, `"deepseek"`, `"fake"`).
+    /// Register a provider under a name (e.g. `"openai"`, `"fake"`).
     pub fn register(&mut self, name: &str, provider: Box<dyn LlmProvider>) {
         self.providers.insert(name.to_string(), provider);
     }
@@ -115,12 +113,11 @@ impl ProviderManager {
         self.providers.keys().cloned().collect()
     }
 
-    /// Build the default set of providers (fake, openai, deepseek).
+    /// Build the default set of providers (fake, openai).
     pub fn default() -> Self {
         let mut mgr = Self::new();
         mgr.register("fake", Box::new(FakeProvider::default()));
         mgr.register("openai", Box::new(OpenAiResponsesProvider::new()));
-        mgr.register("deepseek", Box::new(DeepSeekCompatProvider::new()));
         mgr
     }
 
@@ -135,11 +132,6 @@ impl ProviderManager {
         let openai_key = config.resolve_api_key("openai");
         mgr.register("openai", Box::new(OpenAiResponsesProvider::with_api_key(openai_key)));
 
-        let deepseek_key = config.resolve_api_key("deepseek");
-        mgr.register(
-            "deepseek",
-            Box::new(DeepSeekCompatProvider::with_api_key(deepseek_key)),
-        );
 
         // Register any custom providers defined in config.json
         mgr.register_custom_from_app_config(config);
@@ -148,13 +140,13 @@ impl ProviderManager {
     }
 
     /// Register custom providers from the `providers` map in the app config.
-    /// Skips built-in names (`openai`, `deepseek`, `fake`) that already have
+    /// Skips built-in names (`openai`, `fake`) that already have
     /// dedicated adapters.
     pub fn register_custom_from_app_config(
         &mut self,
         config: &crate::auth::config::AppConfigFile,
     ) {
-        let builtins: &[&str] = &["openai", "deepseek", "fake"];
+        let builtins: &[&str] = &["openai", "fake"];
         for (name, auth) in &config.providers {
             if builtins.contains(&name.as_str()) {
                 continue;
