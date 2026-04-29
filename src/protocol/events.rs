@@ -59,7 +59,7 @@ pub enum ServerEvent {
         options: Vec<super::types::AskOption>,
         #[serde(default)]
         allow_multiple: bool,
-        #[serde(default = "default_true")]
+        #[serde(default)]
         allow_freeform: bool,
         #[serde(default)]
         allow_comment: bool,
@@ -82,8 +82,4 @@ pub enum ServerEvent {
     BashOutput { stdout: String, stderr: String },
     #[serde(rename_all = "camelCase")]
     BashDone { exit_code: i32 },
-}
-
-fn default_true() -> bool {
-    true
 }

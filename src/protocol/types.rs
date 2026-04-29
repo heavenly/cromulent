@@ -144,7 +144,6 @@ pub struct ProviderRequest {
     pub messages: Vec<LlmMessage>,
     pub tools: Vec<ToolDefinition>,
     pub thinking_level: ThinkingLevel,
-    pub cwd: std::path::PathBuf,
 }
 
 /// Simplified LLM message format for provider requests
@@ -188,16 +187,12 @@ pub struct AskPayload {
     pub options: Vec<AskOption>,
     #[serde(default)]
     pub allow_multiple: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub allow_freeform: bool,
     #[serde(default)]
     pub allow_comment: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_ms: Option<u64>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

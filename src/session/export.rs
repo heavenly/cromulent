@@ -48,28 +48,6 @@ pub async fn export_session(
     tokio::fs::write(path.as_ref(), &json).await
 }
 
-/// Load a session from a portable JSON export file.
-pub async fn load_export(path: impl AsRef<Path>) -> std::io::Result<LoadedSessionState> {
-    let content = tokio::fs::read_to_string(path.as_ref()).await?;
-    let export: SessionExport = serde_json::from_str(&content)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-    if export.schema_version != 1 {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!(
-                "Unsupported export schema version: {}",
-                export.schema_version
-            ),
-        ));
-    }
-
-    Ok(LoadedSessionState {
-        header: export.header,
-        messages: export.messages,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,21 +93,6 @@ mod tests {
             },
         ];
         LoadedSessionState { header, messages }
-    }
-
-    #[tokio::test]
-    async fn test_export_roundtrip() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("session.json");
-
-        let original = sample_session();
-        export_session(&path, &original).await.unwrap();
-
-        let loaded = load_export(&path).await.unwrap();
-        assert_eq!(loaded.header.session_id, original.header.session_id);
-        assert_eq!(loaded.messages.len(), original.messages.len());
-        assert_eq!(loaded.messages[0].id, original.messages[0].id);
-        assert_eq!(loaded.messages[1].id, original.messages[1].id);
     }
 
     #[test]

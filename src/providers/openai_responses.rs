@@ -449,7 +449,6 @@ mod tests {
             }],
             tools: vec![],
             thinking_level: ThinkingLevel::Medium,
-            cwd: std::path::PathBuf::from("/tmp"),
         }
     }
 
@@ -507,7 +506,6 @@ mod tests {
             ],
             tools: vec![],
             thinking_level: ThinkingLevel::Low,
-            cwd: std::path::PathBuf::from("/tmp"),
         };
 
         let body = build_request_body(&req);

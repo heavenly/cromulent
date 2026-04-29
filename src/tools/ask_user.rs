@@ -1,9 +1,8 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use tokio::sync::oneshot;
-use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::protocol::events::ServerEvent;
@@ -44,14 +43,14 @@ impl AskManagerHandle {
     /// This is async because it acquires the tokio::sync::Mutex.
     pub async fn register(&self, ask_id: String) -> oneshot::Receiver<AskUserResponse> {
         let (tx, rx) = oneshot::channel();
-        let mut state = self.inner.lock().await;
+        let mut state = self.inner.lock().unwrap();
         state.pending.insert(ask_id, tx);
         rx
     }
 
     /// Resolve a pending ask by sending the response.
     pub async fn resolve(&self, ask_id: &str, response: AskUserResponse) -> Result<(), String> {
-        let mut state = self.inner.lock().await;
+        let mut state = self.inner.lock().unwrap();
         match state.pending.remove(ask_id) {
             Some(sender) => sender
                 .send(response)
@@ -62,7 +61,7 @@ impl AskManagerHandle {
 
     /// Cancel all pending asks.
     pub async fn cancel_all(&self) {
-        let mut state = self.inner.lock().await;
+        let mut state = self.inner.lock().unwrap();
         state.pending.clear();
     }
 }

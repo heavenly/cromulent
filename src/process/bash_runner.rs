@@ -23,17 +23,6 @@ impl BashRunner {
         self.cwd = cwd;
     }
 
-    /// Execute a command, streaming output via the event channel.
-    /// Delegates to `execute_with_cancel` with a no-op cancellation token.
-    pub async fn execute(
-        &self,
-        command: &str,
-        output_tx: &mpsc::UnboundedSender<OutputItem>,
-    ) -> std::io::Result<i32> {
-        self.execute_with_cancel(command, output_tx, CancellationToken::new())
-            .await
-    }
-
     /// Execute a command with cancellation support.
     /// When the token is cancelled, the child process is killed and an error is returned.
     pub async fn execute_with_cancel(
@@ -129,9 +118,7 @@ impl BashRunner {
                 // Wait briefly for the kill to take effect
                 let _ = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
                 emit_event(output_tx, ServerEvent::BashDone { exit_code: -1 });
-                Err(std::io::Error::other(
-                    "Command cancelled",
-                ))
+                Err(std::io::Error::other("Command cancelled"))
             }
         };
 

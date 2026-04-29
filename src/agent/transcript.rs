@@ -101,54 +101,6 @@ pub fn new_user_message(text: impl Into<String>) -> Message {
     }
 }
 
-/// Create a new assistant message containing text.
-pub fn new_assistant_text_message(text: impl Into<String>) -> Message {
-    Message {
-        id: generate_message_id(),
-        timestamp: now_iso(),
-        role: MessageRole::Assistant,
-        content: vec![ContentBlock::Text { text: text.into() }],
-        tool_call_id: None,
-        tool_name: None,
-        is_error: None,
-    }
-}
-
-/// Create a new assistant message with one or more tool calls.
-pub fn new_assistant_tool_call_message(tool_calls: Vec<LlmContentBlock>) -> Message {
-    let content: Vec<ContentBlock> = tool_calls
-        .into_iter()
-        .filter_map(|tc| match tc {
-            LlmContentBlock::ToolCall {
-                id,
-                name,
-                arguments,
-            } => Some(ContentBlock::ToolCall {
-                id,
-                name,
-                arguments,
-            }),
-            _ => None,
-        })
-        .collect();
-
-    Message {
-        id: generate_message_id(),
-        timestamp: now_iso(),
-        role: MessageRole::Assistant,
-        content,
-        tool_call_id: None,
-        tool_name: None,
-        is_error: None,
-    }
-}
-
-/// Create a new assistant message combining text and tool calls
-/// (for providers that emit both in one response).
-pub fn new_assistant_message(text: Option<String>, tool_calls: Vec<LlmContentBlock>) -> Message {
-    new_assistant_message_with_thinking(text, None, tool_calls)
-}
-
 /// Create a new assistant message combining optional thinking, text, and tool calls.
 pub fn new_assistant_message_with_thinking(
     text: Option<String>,

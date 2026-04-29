@@ -63,7 +63,7 @@ impl Tool for ReadTool {
         }
 
         let abs_path = ctx.cwd.join(path_str);
-        let canonical = std::fs::canonicalize(&abs_path).map_err(|e| {
+        let canonical = tokio::fs::canonicalize(&abs_path).await.map_err(|e| {
             ToolError::Other(format!("Cannot resolve path '{}': {e}", abs_path.display()))
         })?;
 

@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use crate::protocol::types::ToolDefinition;
 
 /// Context used to render the system prompt.
@@ -61,23 +59,9 @@ pub fn build_system_prompt(ctx: &PromptContext) -> String {
     )
 }
 
-/// Convenience: build a system prompt from a cwd path and tool definitions.
-pub fn build_system_prompt_from(cwd: &Path, tools: &[ToolDefinition]) -> String {
-    let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
-
-    let ctx = PromptContext {
-        cwd: cwd.to_string_lossy().to_string(),
-        date,
-        tools: tools.to_vec(),
-    };
-
-    build_system_prompt(&ctx)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn test_build_system_prompt_includes_cwd() {
@@ -106,11 +90,5 @@ mod tests {
         };
         let prompt = build_system_prompt(&ctx);
         assert!(!prompt.contains("## Available tools"));
-    }
-
-    #[test]
-    fn test_convenience_fn() {
-        let prompt = build_system_prompt_from(&PathBuf::from("/test"), &[]);
-        assert!(prompt.contains("/test"));
     }
 }

@@ -437,7 +437,6 @@ mod tests {
             }],
             tools: vec![],
             thinking_level: crate::protocol::types::ThinkingLevel::Medium,
-            cwd: std::path::PathBuf::from("."),
         };
         let body = build_request_body(&request);
         let msg = &body["messages"].as_array().unwrap()[1];
@@ -466,7 +465,6 @@ mod tests {
             }],
             tools: vec![],
             thinking_level: crate::protocol::types::ThinkingLevel::Medium,
-            cwd: std::path::PathBuf::from("."),
         };
         let body = build_request_body(&request);
         let msg = &body["messages"].as_array().unwrap()[1];
@@ -497,7 +495,6 @@ mod tests {
             }],
             tools: vec![],
             thinking_level: crate::protocol::types::ThinkingLevel::Medium,
-            cwd: std::path::PathBuf::from("."),
         };
         let body = build_request_body(&request);
         let msg = &body["messages"].as_array().unwrap()[1];

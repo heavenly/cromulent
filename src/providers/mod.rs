@@ -28,29 +28,11 @@ pub enum ProviderError {
     #[error("API key not configured for provider `{0}`")]
     ApiKeyMissing(String),
 
-    #[error("Request failed: {message}")]
-    RequestFailed {
-        message: String,
-        source: Option<Box<dyn std::error::Error + Send + Sync>>,
-    },
-
-    #[error("Stream ended unexpectedly")]
-    StreamEnded,
-
     #[error("Request was cancelled")]
     Cancelled,
 
     #[error(transparent)]
     Io(#[from] std::io::Error),
-}
-
-impl ProviderError {
-    pub fn request_failed(message: impl Into<String>) -> Self {
-        Self::RequestFailed {
-            message: message.into(),
-            source: None,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -120,14 +102,6 @@ impl ProviderManager {
         self.providers.keys().cloned().collect()
     }
 
-    /// Build the default set of providers (fake, openai).
-    pub fn default() -> Self {
-        let mut mgr = Self::new();
-        mgr.register("fake", Box::new(FakeProvider::default()));
-        mgr.register("openai", Box::new(OpenAiResponsesProvider::new()));
-        mgr
-    }
-
     /// Build the default set of providers, resolving API keys from the
     /// given config file (falls back to env vars when config has no entry).
     /// Also registers any additional providers defined in the config's
@@ -157,27 +131,6 @@ impl ProviderManager {
             if builtins.contains(&name.as_str()) {
                 continue;
             }
-            if self.has_provider(name) {
-                continue;
-            }
-            let api_key = auth.resolve_api_key(name);
-            let base_url = auth
-                .base_url
-                .clone()
-                .unwrap_or_else(|| format!("https://api.{name}.com/v1/chat/completions"));
-            self.register(
-                name,
-                Box::new(OpenAiCompatProvider::new(name.clone(), api_key, base_url)),
-            );
-        }
-    }
-
-    /// Register custom providers loaded from `~/.cromulent/providers.json`.
-    pub fn register_custom_from_providers_json(
-        &mut self,
-        config: &crate::auth::providers_config::ProvidersConfigFile,
-    ) {
-        for (name, auth) in &config.providers {
             if self.has_provider(name) {
                 continue;
             }

@@ -176,21 +176,6 @@ impl SessionStore {
         Ok(sessions)
     }
 
-    /// List all session IDs
-    pub async fn list_sessions(&self) -> std::io::Result<Vec<String>> {
-        let mut entries = tokio::fs::read_dir(&self.sessions_dir).await?;
-        let mut sessions = Vec::new();
-        while let Some(entry) = entries.next_entry().await? {
-            let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "jsonl") {
-                if let Some(stem) = path.file_stem() {
-                    sessions.push(stem.to_string_lossy().to_string());
-                }
-            }
-        }
-        sessions.sort();
-        Ok(sessions)
-    }
     /// Delete a session file from disk.
     pub async fn delete_session(&self, session_id: &str) -> std::io::Result<()> {
         let path = self.session_path(session_id);

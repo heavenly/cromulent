@@ -29,7 +29,6 @@ fn dummy_request() -> ProviderRequest {
         }],
         tools: vec![],
         thinking_level: ThinkingLevel::Medium,
-        cwd: PathBuf::from("/tmp"),
     }
 }
 
@@ -40,10 +39,8 @@ fn dummy_request() -> ProviderRequest {
 #[test]
 fn test_provider_manager_default_has_providers() {
     let mgr = ProviderManager::default();
-    let names = mgr.provider_names();
-    assert!(names.contains(&"fake".to_string()));
-    assert!(names.contains(&"openai".to_string()));
-    assert!(!names.contains(&"deepseek".to_string()));
+    // Default is empty — use default_with_config() for configured providers
+    assert!(mgr.provider_names().is_empty());
 }
 
 #[test]
@@ -358,7 +355,8 @@ async fn test_fake_provider_scripted_empty() {
 fn test_provider_manager_resolves_openai() {
     let mgr = {
         unsafe { std::env::set_var("OPENAI_API_KEY", "sk-test") };
-        let m = ProviderManager::default();
+        let mut m = ProviderManager::new();
+        m.register("openai", Box::new(OpenAiResponsesProvider::new()));
         unsafe { std::env::remove_var("OPENAI_API_KEY") };
         m
     };
@@ -389,7 +387,9 @@ fn test_provider_manager_resolves_openai() {
 
 #[tokio::test]
 async fn test_provider_manager_resolves_fake() {
-    let mgr = ProviderManager::default();
+    let mut mgr = ProviderManager::new();
+    mgr.register("fake", Box::new(FakeProvider::default()));
+    let mgr = mgr;
     let model = ModelInfo {
         provider: "fake".into(),
         id: "fake".into(),
@@ -422,39 +422,7 @@ fn test_provider_error_display() {
         "API key not configured for provider `openai`"
     );
     assert_eq!(
-        format!(
-            "{}",
-            ProviderError::RequestFailed {
-                message: "timeout".into(),
-                source: None,
-            }
-        ),
-        "Request failed: timeout"
-    );
-    assert_eq!(
-        format!("{}", ProviderError::StreamEnded),
-        "Stream ended unexpectedly"
-    );
-    assert_eq!(
         format!("{}", ProviderError::Cancelled),
         "Request was cancelled"
     );
-}
-
-// -----------------------------------------------------------------------
-// ProviderError helper constructor
-// -----------------------------------------------------------------------
-
-#[test]
-fn test_provider_error_request_failed() {
-    let err = ProviderError::request_failed("network error");
-    match err {
-        ProviderError::RequestFailed {
-            message,
-            source: None,
-        } => {
-            assert_eq!(message, "network error");
-        }
-        _ => panic!("Expected RequestFailed"),
-    }
 }

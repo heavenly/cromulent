@@ -79,7 +79,7 @@ impl Tool for HashlineEditTool {
         }
         let ops = parse_ops(edits_v)?;
         let abs = ctx.cwd.join(path_str);
-        let canonical = std::fs::canonicalize(&abs).map_err(|e| {
+        let canonical = tokio::fs::canonicalize(&abs).await.map_err(|e| {
             ToolError::Other(format!("Cannot resolve path '{}': {e}", abs.display()))
         })?;
         let lock = super::queue::file_lock(&canonical);

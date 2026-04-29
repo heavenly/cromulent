@@ -173,7 +173,6 @@ impl AgentRunner {
             messages: llm_messages,
             tools: ctx.tool_defs.to_vec(),
             thinking_level: ctx.thinking_level.clone(),
-            cwd: ctx.cwd.clone(),
         };
 
         let mut rx = match ctx.provider.stream(request, cancel.clone()).await {

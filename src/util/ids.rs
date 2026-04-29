@@ -19,11 +19,3 @@ pub fn generate_message_id() -> String {
 pub fn generate_ask_id() -> String {
     format!("ask_{}", &Uuid::new_v4().to_string().replace('-', "")[..12])
 }
-
-/// Generate a new tool call ID
-pub fn generate_tool_call_id() -> String {
-    format!(
-        "call_{}",
-        &Uuid::new_v4().to_string().replace('-', "")[..12]
-    )
-}

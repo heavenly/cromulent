@@ -171,34 +171,15 @@ async fn test_session_store_update_header_preserves_messages() {
 // -----------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_session_store_list_empty() {
+async fn test_session_store_create_and_load_after_ensure_dir() {
     let dir = tempfile::tempdir().unwrap();
     let store = SessionStore::new(dir.path().to_path_buf());
     store.ensure_dir().await.unwrap();
 
-    let sessions = store.list_sessions().await.unwrap();
-    assert!(sessions.is_empty());
-}
-
-#[tokio::test]
-async fn test_session_store_list_sessions() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SessionStore::new(dir.path().to_path_buf());
-    store.ensure_dir().await.unwrap();
-
-    let h1 = sample_header("ses_a", "/a");
-    let h2 = sample_header("ses_b", "/b");
-    let h3 = sample_header("ses_c", "/c");
-
-    store.create_session(&h1).await.unwrap();
-    store.create_session(&h2).await.unwrap();
-    store.create_session(&h3).await.unwrap();
-
-    let sessions = store.list_sessions().await.unwrap();
-    assert_eq!(sessions.len(), 3);
-    assert!(sessions.contains(&"ses_a".to_string()));
-    assert!(sessions.contains(&"ses_b".to_string()));
-    assert!(sessions.contains(&"ses_c".to_string()));
+    let header = sample_header("ses_empty", "/test");
+    store.create_session(&header).await.unwrap();
+    let loaded = store.load_session("ses_empty").await.unwrap();
+    assert_eq!(loaded.header.session_id, "ses_empty");
 }
 
 // -----------------------------------------------------------------------
