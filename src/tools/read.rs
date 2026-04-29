@@ -2,10 +2,12 @@ use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 
 use crate::protocol::types::{ContentBlock, ToolContext, ToolDefinition, ToolResult};
+use crate::tools::hashline::file_kind::{load_file, LoadedFile};
+use crate::tools::hashline::read::format_read_preview;
 use crate::tools::registry::Tool;
 use crate::tools::ToolError;
 
-/// Reads a text file, optionally limiting to a range of lines.
+/// Reads a UTF-8 text file as hash-anchored lines (`LINE#HASH:content`).
 /// Relative paths are resolved against `ToolContext::cwd`.
 pub struct ReadTool;
 
@@ -14,22 +16,13 @@ impl Tool for ReadTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "read".to_string(),
-            description: "Read a text file. Optionally specify offset (1-indexed start line) and limit (max lines). Relative paths are relative to the current working directory.".to_string(),
+            description: "Read a UTF-8 text file as hash-anchored lines in the form LINE#HASH:content. Use the returned anchors with hashline_edit. Optionally specify offset (1-indexed start line) and limit (max lines). Rejects directories and binary files.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Path to the file to read (relative or absolute)"
-                    },
-                    "offset": {
-                        "type": "integer",
-                        "description": "Starting line number (1-indexed, default: 1)"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of lines to return (default: no limit)"
-                    }
+                    "path": { "type": "string", "description": "Path to the file to read (relative or absolute)" },
+                    "offset": { "type": "integer", "description": "Starting line number (1-indexed, default: 1)", "minimum": 1 },
+                    "limit": { "type": "integer", "description": "Maximum number of lines to return", "minimum": 1 }
                 },
                 "required": ["path"]
             }),
@@ -49,68 +42,64 @@ impl Tool for ReadTool {
         let path_str = arguments
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArguments("Missing required 'path' argument".into()))?;
-
-        let abs_path = ctx.cwd.join(path_str);
-        let canonical = std::fs::canonicalize(&abs_path)
-            .map_err(|e| ToolError::Other(format!("Cannot resolve path '{}': {e}", abs_path.display())))?;
-
-        if !canonical.is_file() {
-            return Err(ToolError::NotFound(format!("Not a file: '{}'", canonical.display())));
-        }
-
-        if cancel.is_cancelled() {
-            return Err(ToolError::Cancelled);
-        }
-
-        let content = tokio::fs::read_to_string(&canonical).await?;
-
-        if cancel.is_cancelled() {
-            return Err(ToolError::Cancelled);
-        }
-
-        let lines: Vec<&str> = content.lines().collect();
-        let total_lines = lines.len();
+            .ok_or_else(|| {
+                ToolError::InvalidArguments("Missing required 'path' argument".into())
+            })?;
 
         let offset = arguments
             .get("offset")
             .and_then(|v| v.as_i64())
-            .unwrap_or(1)
-            .max(1) as usize;
-
+            .unwrap_or(1);
+        if offset < 1 {
+            return Err(ToolError::InvalidArguments(
+                "Read request field \"offset\" must be a positive integer.".into(),
+            ));
+        }
         let limit = arguments.get("limit").and_then(|v| v.as_i64());
+        if matches!(limit, Some(l) if l < 1) {
+            return Err(ToolError::InvalidArguments(
+                "Read request field \"limit\" must be a positive integer.".into(),
+            ));
+        }
 
-        let start = (offset - 1).min(total_lines);
-        let end = match limit {
-            Some(l) => (start + l as usize).min(total_lines),
-            None => total_lines,
+        let abs_path = ctx.cwd.join(path_str);
+        let canonical = std::fs::canonicalize(&abs_path).map_err(|e| {
+            ToolError::Other(format!("Cannot resolve path '{}': {e}", abs_path.display()))
+        })?;
+
+        if cancel.is_cancelled() {
+            return Err(ToolError::Cancelled);
+        }
+
+        let loaded = load_file(&canonical).await?;
+        let text = match loaded {
+            LoadedFile::Text(t) => t,
+            LoadedFile::Directory => return Err(ToolError::EditFailed(format!("[E_DIRECTORY] Path is a directory: {path_str}. Use find/ls-style tools to inspect directories."))),
+            LoadedFile::Image(mime) => return Err(ToolError::EditFailed(format!("[E_BINARY_FILE] Path is an image file ({mime}); hashline read only supports UTF-8 text files."))),
+            LoadedFile::Binary(desc) => return Err(ToolError::EditFailed(format!("[E_BINARY_FILE] Path is a binary file: {path_str} ({desc}). Hashline read only supports UTF-8 text files."))),
         };
 
-        let excerpt = lines[start..end].join("\n");
-        let line_count = end - start;
-
-        let mut text = format!("File: {}\n", canonical.display());
-        if line_count < total_lines {
-            text.push_str(&format!(
-                "Showing lines {}-{} of {}\n\n",
-                start + 1,
-                end,
-                total_lines
-            ));
-        } else {
-            text.push_str(&format!("Total lines: {}\n\n", total_lines));
+        if cancel.is_cancelled() {
+            return Err(ToolError::Cancelled);
         }
-        text.push_str(&excerpt);
+
+        let preview = format_read_preview(&text, offset as usize, limit.map(|l| l as usize))
+            .map_err(ToolError::InvalidArguments)?;
 
         Ok(ToolResult {
-            content: vec![ContentBlock::Text { text }],
+            content: vec![ContentBlock::Text { text: preview.text }],
             is_error: false,
             metadata: Some(serde_json::json!({
                 "path": canonical.to_string_lossy(),
-                "totalLines": total_lines,
-                "startLine": start + 1,
-                "endLine": end,
-                "lineCount": line_count,
+                "fileKind": "text",
+                "offset": preview.start,
+                "lineCountReturned": preview.returned,
+                "totalLines": preview.total_lines,
+                "truncated": preview.truncated,
+                "nextOffset": preview.next_offset,
+                "startLine": preview.start,
+                "endLine": preview.end,
+                "fileHash": preview.file_hash,
             })),
         })
     }

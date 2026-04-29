@@ -29,8 +29,12 @@ pub fn build_system_prompt(ctx: &PromptContext) -> String {
         format!(
             "\n\n## Available tools\n\nYou have access to the following tools:\n{}\n\n### Tool rules\n\
             - Prefer `read`/`find`/`grep` over `bash` for exploration.\n\
-            - `read` before `edit`.\n\
-            - Use `edit` for existing files, `write` for new files.\n\
+            - `read` exact regions before editing; `read` returns `LINE#HASH:content` anchors.\n\
+            - Use `hashline_edit` for existing files, copying anchors from `read`.\n\
+            - Replacement lines in `hashline_edit` must be literal file content: no `LINE#HASH:` prefixes and no diff `+`/`-` prefixes.\n\
+            - Use `write` for new files only; it is create-only by default.\n\
+            - Make the smallest correct change. Do not rewrite whole files/functions, reformat, rename, refactor, or reorganize unless requested.\n\
+            - Broad or risky changes require `ask_user` after gathering context.\n\
             - Before `ask_user`, gather enough context to ask a focused question.\n\
             - Make real changes with tools when appropriate.",
             tool_list.join("\n")
@@ -45,6 +49,7 @@ pub fn build_system_prompt(ctx: &PromptContext) -> String {
         - Be concise and explicit about file paths.\n\
         - Do not invent file contents or command outputs.\n\
         - Do not make assumptions about the codebase without reading relevant files first.\n\
+        - Preserve existing style and structure; keep edits surgical unless explicitly asked otherwise.\n\
         - If you are unsure, ask the user for clarification using `ask_user`.\n\n\
         ## Operational context\n\
         Working directory: {cwd}\n\
@@ -57,13 +62,8 @@ pub fn build_system_prompt(ctx: &PromptContext) -> String {
 }
 
 /// Convenience: build a system prompt from a cwd path and tool definitions.
-pub fn build_system_prompt_from(
-    cwd: &Path,
-    tools: &[ToolDefinition],
-) -> String {
-    let date = chrono::Utc::now()
-        .format("%Y-%m-%d")
-        .to_string();
+pub fn build_system_prompt_from(cwd: &Path, tools: &[ToolDefinition]) -> String {
+    let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
     let ctx = PromptContext {
         cwd: cwd.to_string_lossy().to_string(),
@@ -110,10 +110,7 @@ mod tests {
 
     #[test]
     fn test_convenience_fn() {
-        let prompt = build_system_prompt_from(
-            &PathBuf::from("/test"),
-            &[],
-        );
+        let prompt = build_system_prompt_from(&PathBuf::from("/test"), &[]);
         assert!(prompt.contains("/test"));
     }
 }

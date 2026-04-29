@@ -1,19 +1,19 @@
-pub mod registry;
-pub mod bash;
-pub mod read;
-pub mod write;
-pub mod edit;
-pub mod grep;
-pub mod find;
 pub mod ask_user;
+pub mod bash;
+pub mod find;
+pub mod grep;
+pub mod hashline;
+pub mod read;
+pub mod registry;
+pub mod write;
 
+pub use ask_user::AskUserTool;
+pub use bash::BashTool;
+pub use find::FindTool;
+pub use grep::GrepTool;
+pub use hashline::edit::HashlineEditTool;
 pub use read::ReadTool;
 pub use write::WriteTool;
-pub use edit::EditTool;
-pub use grep::GrepTool;
-pub use find::FindTool;
-pub use bash::BashTool;
-pub use ask_user::AskUserTool;
 
 use thiserror::Error;
 

@@ -222,16 +222,28 @@ fn test_serialize_response_ok() {
     let json = serde_json::to_string(&resp).unwrap();
     assert!(json.contains(r#""id":"1""#));
     assert!(json.contains(r#""success":true"#));
-    assert!(!json.contains("error"), "ok response should not have error field: {json}");
+    assert!(
+        !json.contains("error"),
+        "ok response should not have error field: {json}"
+    );
 }
 
 #[test]
 fn test_serialize_response_err() {
     let resp = CommandResponse::err(Some("2".into()), "Something went wrong");
     let json = serde_json::to_string(&resp).unwrap();
-    assert!(json.contains(r#""id":"2""#), "json should contain id: {json}");
-    assert!(json.contains(r#""success":false"#), "json should contain success=false: {json}");
-    assert!(json.contains(r#""error":"Something went wrong""#), "json should contain error: {json}");
+    assert!(
+        json.contains(r#""id":"2""#),
+        "json should contain id: {json}"
+    );
+    assert!(
+        json.contains(r#""success":false"#),
+        "json should contain success=false: {json}"
+    );
+    assert!(
+        json.contains(r#""error":"Something went wrong""#),
+        "json should contain error: {json}"
+    );
 }
 
 #[test]
@@ -239,8 +251,14 @@ fn test_serialize_response_ok_with_data() {
     let data = serde_json::json!({ "runId": "run_abc" });
     let resp = CommandResponse::ok_with_data(Some("3".into()), data);
     let json = serde_json::to_string(&resp).unwrap();
-    assert!(json.contains(r#""runId":"run_abc""#), "data should contain runId: {json}");
-    assert!(json.contains(r#""success":true"#), "should have success=true: {json}");
+    assert!(
+        json.contains(r#""runId":"run_abc""#),
+        "data should contain runId: {json}"
+    );
+    assert!(
+        json.contains(r#""success":true"#),
+        "should have success=true: {json}"
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -347,6 +365,7 @@ fn test_serialize_tool_result_event() {
             text: "file contents".into(),
         }],
         is_error: false,
+        metadata: Some(serde_json::json!({"changedSpan": {"start": 1, "end": 1}})),
     };
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains(r#""type":"toolResult""#));
@@ -361,12 +380,10 @@ fn test_serialize_ask_event() {
         id: "ask_1".into(),
         question: "Which approach?".into(),
         context: Some("We have two options".into()),
-        options: vec![
-            AskOption {
-                title: "A".into(),
-                description: Some("Option A".into()),
-            },
-        ],
+        options: vec![AskOption {
+            title: "A".into(),
+            description: Some("Option A".into()),
+        }],
         allow_multiple: false,
         allow_freeform: true,
         allow_comment: false,

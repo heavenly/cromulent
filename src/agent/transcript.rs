@@ -1,6 +1,4 @@
-use crate::protocol::types::{
-    ContentBlock, LlmContentBlock, LlmMessage, Message, MessageRole,
-};
+use crate::protocol::types::{ContentBlock, LlmContentBlock, LlmMessage, Message, MessageRole};
 use crate::util::ids::generate_message_id;
 use crate::util::time::now_iso;
 
@@ -45,9 +43,7 @@ pub fn message_to_llm(message: &Message) -> Option<LlmMessage> {
 /// Convert a [`ContentBlock`] to a [`LlmContentBlock`].
 fn content_block_to_llm(block: &ContentBlock) -> Option<LlmContentBlock> {
     match block {
-        ContentBlock::Text { text } => Some(LlmContentBlock::Text {
-            text: text.clone(),
-        }),
+        ContentBlock::Text { text } => Some(LlmContentBlock::Text { text: text.clone() }),
         ContentBlock::ToolCall {
             id,
             name,
@@ -61,6 +57,7 @@ fn content_block_to_llm(block: &ContentBlock) -> Option<LlmContentBlock> {
             tool_call_id,
             content,
             is_error,
+            metadata: _,
         } => {
             // Flatten tool result content to a single text string
             let text: String = content
@@ -83,10 +80,7 @@ fn content_block_to_llm(block: &ContentBlock) -> Option<LlmContentBlock> {
 
 /// Bulk convert a slice of messages to LlmMessage, filtering out system messages.
 pub fn messages_to_llm(messages: &[Message]) -> Vec<LlmMessage> {
-    messages
-        .iter()
-        .filter_map(message_to_llm)
-        .collect()
+    messages.iter().filter_map(message_to_llm).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -99,9 +93,7 @@ pub fn new_user_message(text: impl Into<String>) -> Message {
         id: generate_message_id(),
         timestamp: now_iso(),
         role: MessageRole::User,
-        content: vec![ContentBlock::Text {
-            text: text.into(),
-        }],
+        content: vec![ContentBlock::Text { text: text.into() }],
         tool_call_id: None,
         tool_name: None,
         is_error: None,
@@ -114,9 +106,7 @@ pub fn new_assistant_text_message(text: impl Into<String>) -> Message {
         id: generate_message_id(),
         timestamp: now_iso(),
         role: MessageRole::Assistant,
-        content: vec![ContentBlock::Text {
-            text: text.into(),
-        }],
+        content: vec![ContentBlock::Text { text: text.into() }],
         tool_call_id: None,
         tool_name: None,
         is_error: None,
@@ -128,13 +118,15 @@ pub fn new_assistant_tool_call_message(tool_calls: Vec<LlmContentBlock>) -> Mess
     let content: Vec<ContentBlock> = tool_calls
         .into_iter()
         .filter_map(|tc| match tc {
-            LlmContentBlock::ToolCall { id, name, arguments } => {
-                Some(ContentBlock::ToolCall {
-                    id,
-                    name,
-                    arguments,
-                })
-            }
+            LlmContentBlock::ToolCall {
+                id,
+                name,
+                arguments,
+            } => Some(ContentBlock::ToolCall {
+                id,
+                name,
+                arguments,
+            }),
             _ => None,
         })
         .collect();
@@ -152,10 +144,7 @@ pub fn new_assistant_tool_call_message(tool_calls: Vec<LlmContentBlock>) -> Mess
 
 /// Create a new assistant message combining text and tool calls
 /// (for providers that emit both in one response).
-pub fn new_assistant_message(
-    text: Option<String>,
-    tool_calls: Vec<LlmContentBlock>,
-) -> Message {
+pub fn new_assistant_message(text: Option<String>, tool_calls: Vec<LlmContentBlock>) -> Message {
     let mut content = Vec::new();
 
     if let Some(t) = text {
@@ -163,7 +152,12 @@ pub fn new_assistant_message(
     }
 
     for tc in tool_calls {
-        if let LlmContentBlock::ToolCall { id, name, arguments } = tc {
+        if let LlmContentBlock::ToolCall {
+            id,
+            name,
+            arguments,
+        } = tc
+        {
             content.push(ContentBlock::ToolCall {
                 id,
                 name,
@@ -189,6 +183,7 @@ pub fn new_tool_result_message(
     tool_name: impl Into<String>,
     content_text: impl Into<String>,
     is_error: bool,
+    metadata: Option<serde_json::Value>,
 ) -> Message {
     let tool_call_id: String = tool_call_id.into();
     let tool_name: String = tool_name.into();
@@ -199,10 +194,9 @@ pub fn new_tool_result_message(
         role: MessageRole::Tool,
         content: vec![ContentBlock::ToolResult {
             tool_call_id: tool_call_id.clone(),
-            content: vec![ContentBlock::Text {
-                text: content_text,
-            }],
+            content: vec![ContentBlock::Text { text: content_text }],
             is_error,
+            metadata,
         }],
         tool_call_id: Some(tool_call_id),
         tool_name: Some(tool_name),
@@ -261,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_new_tool_result_message() {
-        let msg = new_tool_result_message("call_1", "read", "file content", false);
+        let msg = new_tool_result_message("call_1", "read", "file content", false, None);
         assert_eq!(msg.role, MessageRole::Tool);
         assert_eq!(msg.tool_call_id.unwrap(), "call_1");
     }

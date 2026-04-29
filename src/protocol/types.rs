@@ -89,6 +89,8 @@ pub enum ContentBlock {
         tool_call_id: String,
         content: Vec<ContentBlock>,
         is_error: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        metadata: Option<serde_json::Value>,
     },
 }
 
@@ -104,15 +106,32 @@ pub struct ToolDefinition {
 /// Provider-normalized event stream (internal, not wire format)
 #[derive(Debug, Clone)]
 pub enum ProviderEvent {
-    TextDelta { text: String },
-    ThinkingDelta { text: String },
+    TextDelta {
+        text: String,
+    },
+    ThinkingDelta {
+        text: String,
+    },
     ThinkingEnd,
-    ToolCallStarted { id: String, name: String },
-    ToolCallArgumentsDelta { id: String, delta: String },
-    ToolCallCompleted { id: String },
-    Usage { input_tokens: u32, output_tokens: u32 },
+    ToolCallStarted {
+        id: String,
+        name: String,
+    },
+    ToolCallArgumentsDelta {
+        id: String,
+        delta: String,
+    },
+    ToolCallCompleted {
+        id: String,
+    },
+    Usage {
+        input_tokens: u32,
+        output_tokens: u32,
+    },
     Completed,
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 /// Request payload sent to a provider
@@ -213,5 +232,3 @@ pub struct ToolResult {
     pub is_error: bool,
     pub metadata: Option<serde_json::Value>,
 }
-
-

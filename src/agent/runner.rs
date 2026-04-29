@@ -72,7 +72,6 @@ impl AgentRunner {
         max_turns: u32,
         run_id: String,
     ) -> RunResult {
-
         // --- 1. Append user message -------------------------------------------------
         // The caller should have already appended the user message. We just ensure
         // it's present. For now we trust the caller — no double-append.
@@ -187,10 +186,8 @@ impl AgentRunner {
             let mut turn_error: Option<String> = None;
 
             // For accumulating tool call arguments across deltas
-            let mut tool_call_buffers: std::collections::HashMap<
-                String,
-                (String, String, String),
-            > = std::collections::HashMap::new();
+            let mut tool_call_buffers: std::collections::HashMap<String, (String, String, String)> =
+                std::collections::HashMap::new();
             // Maps call_id -> (name, accumulated_args_json)
 
             while let Some(event) = rx.recv().await {
@@ -349,9 +346,7 @@ impl AgentRunner {
             );
 
             let has_tool_calls = !assistant_tool_calls.is_empty();
-            let has_text = assistant_text
-                .as_ref()
-                .is_some_and(|s| !s.is_empty());
+            let has_text = assistant_text.as_ref().is_some_and(|s| !s.is_empty());
 
             // Only persist assistant message if there's content or tool calls
             if has_text || has_tool_calls {
@@ -383,7 +378,7 @@ impl AgentRunner {
                                 .execute(name, tool_ctx, arguments.clone(), cancel.clone())
                                 .await;
 
-                            let (content_text, is_error) = match result {
+                            let (content_text, is_error, result_metadata) = match result {
                                 Ok(tool_result) => {
                                     // Flatten content to text for the transcript
                                     let text: String = tool_result
@@ -397,6 +392,7 @@ impl AgentRunner {
                                         .join("\n");
 
                                     let is_err = tool_result.is_error;
+                                    let metadata = tool_result.metadata.clone();
 
                                     // Emit tool result event
                                     emit_event(
@@ -408,10 +404,11 @@ impl AgentRunner {
                                                 text: text.clone(),
                                             }],
                                             is_error: is_err,
+                                            metadata: metadata.clone(),
                                         },
                                     );
 
-                                    (text, is_err)
+                                    (text, is_err, metadata)
                                 }
                                 Err(e) => {
                                     let err_text = format!("Tool execution error: {e}");
@@ -425,10 +422,11 @@ impl AgentRunner {
                                                 text: err_text.clone(),
                                             }],
                                             is_error: true,
+                                            metadata: None,
                                         },
                                     );
 
-                                    (err_text, true)
+                                    (err_text, true, None)
                                 }
                             };
 
@@ -438,10 +436,9 @@ impl AgentRunner {
                                 name,
                                 content_text,
                                 is_error,
+                                result_metadata,
                             );
-                            let _ = session_store
-                                .append_message(session_id, &tool_msg)
-                                .await;
+                            let _ = session_store.append_message(session_id, &tool_msg).await;
                             messages.push(tool_msg);
                         }
                         _ => {}

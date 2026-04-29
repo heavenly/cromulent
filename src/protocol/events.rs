@@ -1,8 +1,6 @@
 use serde::Serialize;
 
-use super::types::{
-    AskPayload, ContentBlock, ModelInfo, ThinkingLevel, UsageInfo,
-};
+use super::types::{ContentBlock, ModelInfo, ThinkingLevel, UsageInfo};
 
 /// Events emitted by the daemon to stdout (one JSONL line each)
 #[derive(Debug, Clone, Serialize)]
@@ -16,14 +14,9 @@ pub enum ServerEvent {
         thinking_level: ThinkingLevel,
     },
     #[serde(rename_all = "camelCase")]
-    AgentStart {
-        run_id: String,
-    },
+    AgentStart { run_id: String },
     #[serde(rename_all = "camelCase")]
-    TurnStart {
-        run_id: String,
-        turn: u32,
-    },
+    TurnStart { run_id: String, turn: u32 },
     #[serde(rename_all = "camelCase")]
     TextDelta {
         run_id: String,
@@ -37,9 +30,7 @@ pub enum ServerEvent {
         partial: String,
     },
     #[serde(rename_all = "camelCase")]
-    ThinkingEnd {
-        run_id: String,
-    },
+    ThinkingEnd { run_id: String },
     #[serde(rename_all = "camelCase")]
     ToolCall {
         run_id: String,
@@ -54,6 +45,8 @@ pub enum ServerEvent {
         content: Vec<ContentBlock>,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         is_error: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        metadata: Option<serde_json::Value>,
     },
     #[serde(rename_all = "camelCase")]
     Ask {
@@ -74,10 +67,7 @@ pub enum ServerEvent {
         timeout_ms: Option<u64>,
     },
     #[serde(rename_all = "camelCase")]
-    Error {
-        run_id: String,
-        message: String,
-    },
+    Error { run_id: String, message: String },
     #[serde(rename_all = "camelCase")]
     TurnEnd {
         run_id: String,
@@ -87,19 +77,11 @@ pub enum ServerEvent {
         usage: Option<UsageInfo>,
     },
     #[serde(rename_all = "camelCase")]
-    AgentEnd {
-        run_id: String,
-        stop_reason: String,
-    },
+    AgentEnd { run_id: String, stop_reason: String },
     #[serde(rename_all = "camelCase")]
-    BashOutput {
-        stdout: String,
-        stderr: String,
-    },
+    BashOutput { stdout: String, stderr: String },
     #[serde(rename_all = "camelCase")]
-    BashDone {
-        exit_code: i32,
-    },
+    BashDone { exit_code: i32 },
 }
 
 fn default_true() -> bool {

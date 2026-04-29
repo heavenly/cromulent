@@ -5,7 +5,7 @@ use crate::protocol::types::{ContentBlock, ToolContext, ToolDefinition, ToolResu
 use crate::tools::registry::Tool;
 use crate::tools::ToolError;
 
-/// Writes content to a file, automatically creating parent directories.
+/// Writes content to a new file, automatically creating parent directories.
 pub struct WriteTool;
 
 #[async_trait]
@@ -13,18 +13,13 @@ impl Tool for WriteTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "write".to_string(),
-            description: "Write content to a file. Creates the file and all parent directories as needed. Overwrites if the file already exists.".to_string(),
+            description: "Create a new file with content, creating parent directories as needed. Does not overwrite existing files unless overwrite=true is provided; prefer hashline_edit for existing files.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Path to the file to write (relative or absolute)"
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Content to write to the file"
-                    }
+                    "path": { "type": "string", "description": "Path to the file to write (relative or absolute)" },
+                    "content": { "type": "string", "description": "Content to write to the file" },
+                    "overwrite": { "type": "boolean", "description": "Allow overwriting an existing file. Defaults to false; prefer hashline_edit for existing files." }
                 },
                 "required": ["path", "content"]
             }),
@@ -44,16 +39,30 @@ impl Tool for WriteTool {
         let path_str = arguments
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArguments("Missing required 'path' argument".into()))?;
+            .ok_or_else(|| {
+                ToolError::InvalidArguments("Missing required 'path' argument".into())
+            })?;
 
         let content = arguments
             .get("content")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArguments("Missing required 'content' argument".into()))?;
+            .ok_or_else(|| {
+                ToolError::InvalidArguments("Missing required 'content' argument".into())
+            })?;
 
+        let overwrite = arguments
+            .get("overwrite")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let abs_path = ctx.cwd.join(path_str);
 
-        // Create parent directories
+        if abs_path.exists() && !overwrite {
+            return Err(ToolError::EditFailed(format!(
+                "[E_EDIT_TOO_LARGE] Refusing to overwrite existing file '{}'. Use hashline_edit for existing files, or set overwrite=true only after explicit approval.",
+                abs_path.display()
+            )));
+        }
+
         if let Some(parent) = abs_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
@@ -74,6 +83,7 @@ impl Tool for WriteTool {
             metadata: Some(serde_json::json!({
                 "path": abs_path.to_string_lossy(),
                 "bytes": file_size,
+                "overwrite": overwrite,
             })),
         })
     }
