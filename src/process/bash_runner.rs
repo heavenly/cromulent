@@ -51,6 +51,7 @@ impl BashRunner {
             .current_dir(&self.cwd)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
             .spawn()?;
 
         let stdout = child.stdout.take().unwrap();
@@ -128,8 +129,7 @@ impl BashRunner {
                 // Wait briefly for the kill to take effect
                 let _ = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
                 emit_event(output_tx, ServerEvent::BashDone { exit_code: -1 });
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Err(std::io::Error::other(
                     "Command cancelled",
                 ))
             }

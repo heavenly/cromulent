@@ -8,15 +8,10 @@ use crate::providers::{LlmProvider, ProviderError};
 /// Fake provider for testing.
 ///
 /// By default it emits a single text delta and completes.
+#[derive(Default)]
 pub struct FakeProvider {
     /// Optional scripted events to emit.
     pub script: Option<Vec<ProviderEvent>>,
-}
-
-impl Default for FakeProvider {
-    fn default() -> Self {
-        Self { script: None }
-    }
 }
 
 impl FakeProvider {

@@ -329,7 +329,7 @@ impl AppRuntime {
             return;
         }
 
-        let models = vec![
+        let models = [
             ModelInfo {
                 provider: "fake".to_string(),
                 id: "default".to_string(),
@@ -413,9 +413,7 @@ impl AppRuntime {
             Ok(sessions) => {
                 let sessions: Vec<serde_json::Value> = sessions
                     .into_iter()
-                    .map(|(sid, updated)| {
-                        serde_json::json!({"sessionId": sid, "updated": updated})
-                    })
+                    .map(|(sid, updated)| serde_json::json!({"sessionId": sid, "updated": updated}))
                     .collect();
                 let data = serde_json::json!({ "sessions": sessions });
                 respond(&self.output_tx, CommandResponse::ok_with_data(id, data));
@@ -678,12 +676,20 @@ impl AppRuntime {
             "messages": messages,
         });
 
-        let path = std::path::Path::new(&output_path);
-        match tokio::fs::write(path, serde_json::to_string_pretty(&export).unwrap()).await {
-            Ok(()) => respond(&self.output_tx, CommandResponse::ok(id)),
+        match serde_json::to_string_pretty(&export) {
+            Ok(json) => {
+                let path = std::path::Path::new(&output_path);
+                match tokio::fs::write(path, &json).await {
+                    Ok(()) => respond(&self.output_tx, CommandResponse::ok(id)),
+                    Err(e) => respond(
+                        &self.output_tx,
+                        CommandResponse::err(id, format!("Failed to export session: {e}")),
+                    ),
+                }
+            }
             Err(e) => respond(
                 &self.output_tx,
-                CommandResponse::err(id, format!("Failed to export session: {e}")),
+                CommandResponse::err(id, format!("Failed to serialize session: {e}")),
             ),
         }
     }

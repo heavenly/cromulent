@@ -70,8 +70,7 @@ impl SessionStore {
     pub async fn create_session(&self, header: &SessionHeader) -> std::io::Result<()> {
         self.ensure_dir().await?;
         let path = self.session_path(&header.session_id);
-        let header_json = serde_json::to_string(header)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let header_json = serde_json::to_string(header).map_err(|e| std::io::Error::other(e))?;
         tokio::fs::write(&path, format!("{header_json}\n")).await
     }
 
@@ -79,7 +78,7 @@ impl SessionStore {
     pub async fn load_session(&self, session_id: &str) -> std::io::Result<LoadedSessionState> {
         let path = self.session_path(session_id);
         let content = tokio::fs::read_to_string(&path).await?;
-        let mut lines: Vec<&str> = content.lines().collect();
+        let lines: Vec<&str> = content.lines().collect();
 
         if lines.is_empty() {
             return Err(std::io::Error::new(
@@ -125,16 +124,14 @@ impl SessionStore {
             .append(true)
             .open(&path)
             .await?;
-        let msg_json = serde_json::to_string(message)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let msg_json = serde_json::to_string(message).map_err(|e| std::io::Error::other(e))?;
         tokio::io::AsyncWriteExt::write_all(&mut file, format!("{msg_json}\n").as_bytes()).await
     }
 
     /// Update the header in a session file atomically
     pub async fn update_header(&self, header: &SessionHeader) -> std::io::Result<()> {
         let path = self.session_path(&header.session_id);
-        let header_json = serde_json::to_string(header)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let header_json = serde_json::to_string(header).map_err(|e| std::io::Error::other(e))?;
 
         // Read existing content (messages after header)
         let existing = tokio::fs::read_to_string(&path).await.unwrap_or_default();
@@ -158,7 +155,7 @@ impl SessionStore {
         let mut sessions = Vec::new();
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "jsonl") {
+            if path.extension().is_some_and(|ext| ext == "jsonl") {
                 if let Some(stem) = path.file_stem() {
                     // Read first line to get the header's updated timestamp
                     if let Ok(content) = tokio::fs::read_to_string(&path).await {
@@ -185,7 +182,7 @@ impl SessionStore {
         let mut sessions = Vec::new();
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "jsonl") {
+            if path.extension().is_some_and(|ext| ext == "jsonl") {
                 if let Some(stem) = path.file_stem() {
                     sessions.push(stem.to_string_lossy().to_string());
                 }
@@ -199,7 +196,6 @@ impl SessionStore {
         let path = self.session_path(session_id);
         tokio::fs::remove_file(&path).await
     }
-
 
     /// Create a new session by forking from an existing one
     pub async fn fork_session(

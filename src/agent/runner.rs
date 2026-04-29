@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -11,7 +13,7 @@ use crate::protocol::types::{
     ContentBlock, LlmContentBlock, Message, ModelInfo, ProviderEvent, ProviderRequest,
     ThinkingLevel, ToolContext, ToolDefinition, UsageInfo,
 };
-use crate::providers::ProviderManager;
+use crate::providers::{LlmProvider, ProviderManager};
 use crate::session::store::SessionStore;
 use crate::tools::ask_user::AskManagerHandle;
 use crate::tools::registry::ToolRegistry;
@@ -36,26 +38,18 @@ pub struct RunResult {
 /// 5. Loops until the provider stops, the turn limit is reached, or cancellation.
 pub struct AgentRunner;
 
+impl Default for AgentRunner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AgentRunner {
     pub fn new() -> Self {
         Self
     }
 
     /// Execute one full prompt run.
-    ///
-    /// # Parameters
-    /// - `messages`: current transcript messages (before appending the user message).
-    /// - `model`: the model info for this run.
-    /// - `thinking_level`: the thinking level.
-    /// - `cwd`: working directory.
-    /// - `session_store`: for persisting messages.
-    /// - `session_id`: the active session ID.
-    /// - `tool_registry`: registered tool definitions and executors.
-    /// - `output_tx`: channel for emitting events and command responses.
-    /// - `provider_manager`: resolves the LLM provider from `model.provider`.
-    /// - `ask_manager`: handles blocking `ask_user` interactions.
-    /// - `cancel`: cancellation token shared with the caller.
-    /// - `max_turns`: maximum number of turns before forcing stop.
     pub async fn run_prompt(
         &self,
         mut messages: Vec<Message>,
@@ -72,11 +66,9 @@ impl AgentRunner {
         max_turns: u32,
         run_id: String,
     ) -> RunResult {
-        // --- 1. Append user message -------------------------------------------------
-        // The caller should have already appended the user message. We just ensure
-        // it's present. For now we trust the caller — no double-append.
+        let run_id = Arc::from(run_id);
 
-        // --- 2. Build system prompt and tool defs -----------------------------------
+        // --- Build system prompt and tool defs once -------------------------------
         let tool_defs: Vec<ToolDefinition> = tool_registry.definitions().to_vec();
         let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
         let system_prompt = build_system_prompt(&PromptContext {
@@ -85,30 +77,19 @@ impl AgentRunner {
             tools: tool_defs.clone(),
         });
 
-        // --- 3. Resolve provider ---------------------------------------------------
+        // --- Resolve provider ----------------------------------------------------
         let provider = match provider_manager.get(&model) {
             Ok(p) => p,
             Err(e) => {
-                emit_event(
-                    output_tx,
-                    ServerEvent::AgentStart {
-                        run_id: run_id.clone(),
-                    },
-                );
+                emit_event_with_agent_start(output_tx, &run_id);
                 emit_event(
                     output_tx,
                     ServerEvent::Error {
-                        run_id: run_id.clone(),
+                        run_id: run_id.to_string(),
                         message: format!("Provider error: {e}"),
                     },
                 );
-                emit_event(
-                    output_tx,
-                    ServerEvent::AgentEnd {
-                        run_id: run_id.clone(),
-                        stop_reason: "error".to_string(),
-                    },
-                );
+                emit_agent_end(output_tx, &run_id, "error");
                 return RunResult {
                     messages,
                     stop_reason: "error".to_string(),
@@ -116,19 +97,27 @@ impl AgentRunner {
             }
         };
 
-        // --- 4. Emit agent_start ---------------------------------------------------
-        emit_event(
-            output_tx,
-            ServerEvent::AgentStart {
-                run_id: run_id.clone(),
-            },
-        );
+        emit_event_with_agent_start(output_tx, &run_id);
 
-        // --- 5. Turn loop ----------------------------------------------------------
+        // --- Turn loop -----------------------------------------------------------
+        let ctx = RunContext {
+            run_id: &run_id,
+            system_prompt: &system_prompt,
+            tool_defs: &tool_defs,
+            model: &model,
+            thinking_level: &thinking_level,
+            cwd: &cwd,
+            session_store,
+            session_id,
+            tool_registry,
+            output_tx,
+            ask_manager,
+            provider,
+        };
+
         let mut stop_reason = "completed".to_string();
 
         for turn in 1..=max_turns {
-            // Check cancellation before each turn
             if cancel.is_cancelled() {
                 stop_reason = "aborted".to_string();
                 break;
@@ -137,373 +126,462 @@ impl AgentRunner {
             emit_event(
                 output_tx,
                 ServerEvent::TurnStart {
-                    run_id: run_id.clone(),
+                    run_id: run_id.to_string(),
                     turn,
                 },
             );
 
-            // Convert messages to LlmMessage format (exclude system messages)
-            let llm_messages = transcript::messages_to_llm(&messages);
-
-            let request = ProviderRequest {
-                model: model.clone(),
-                system_prompt: system_prompt.clone(),
-                messages: llm_messages,
-                tools: tool_defs.clone(),
-                thinking_level: thinking_level.clone(),
-                cwd: cwd.clone(),
-            };
-
-            // Stream from provider
-            let mut rx = match provider.stream(request, cancel.clone()).await {
-                Ok(rx) => rx,
-                Err(e) => {
-                    emit_event(
-                        output_tx,
-                        ServerEvent::Error {
-                            run_id: run_id.clone(),
-                            message: format!("Provider stream failed: {e}"),
-                        },
-                    );
-                    stop_reason = "error".to_string();
-                    emit_event(
-                        output_tx,
-                        ServerEvent::TurnEnd {
-                            run_id: run_id.clone(),
-                            turn,
-                            stop_reason: stop_reason.clone(),
-                            usage: None,
-                        },
-                    );
+            match self
+                .run_turn(&ctx, &mut messages, turn, &stop_reason, &cancel)
+                .await
+            {
+                TurnOutcome::Continue => continue,
+                TurnOutcome::Stop { reason } => {
+                    stop_reason = reason;
                     break;
                 }
-            };
-
-            // --- 5a. Consume provider events ---------------------------------------
-            let mut assistant_text: Option<String> = None;
-            let mut assistant_thinking: Option<String> = None;
-            let mut assistant_tool_calls: Vec<LlmContentBlock> = Vec::new();
-            let mut usage: Option<UsageInfo> = None;
-            let mut turn_error: Option<String> = None;
-
-            // For accumulating tool call arguments across deltas
-            let mut tool_call_buffers: std::collections::HashMap<String, (String, String, String)> =
-                std::collections::HashMap::new();
-            // Maps call_id -> (name, accumulated_args_json)
-
-            while let Some(event) = rx.recv().await {
-                if cancel.is_cancelled() {
-                    // Drain but stop processing
-                    continue;
-                }
-
-                match event {
-                    ProviderEvent::TextDelta { text } => {
-                        let current = assistant_text.get_or_insert_with(String::new);
-                        current.push_str(&text);
-                        emit_event(
-                            output_tx,
-                            ServerEvent::TextDelta {
-                                run_id: run_id.clone(),
-                                text: text.clone(),
-                                partial: current.clone(),
-                            },
-                        );
-                    }
-
-                    ProviderEvent::ThinkingDelta { text } => {
-                        let current = assistant_thinking.get_or_insert_with(String::new);
-                        current.push_str(&text);
-                        emit_event(
-                            output_tx,
-                            ServerEvent::ThinkingDelta {
-                                run_id: run_id.clone(),
-                                text: text.clone(),
-                                partial: current.clone(),
-                            },
-                        );
-                    }
-
-                    ProviderEvent::ThinkingEnd => {
-                        emit_event(
-                            output_tx,
-                            ServerEvent::ThinkingEnd {
-                                run_id: run_id.clone(),
-                            },
-                        );
-                    }
-
-                    ProviderEvent::ToolCallStarted { id, name } => {
-                        tool_call_buffers.insert(id.clone(), (name, String::new(), id.clone()));
-                        // Don't emit a separate ToolCall event yet — wait for
-                        // completion when we have the full arguments
-                    }
-
-                    ProviderEvent::ToolCallArgumentsDelta { id, delta } => {
-                        if let Some(entry) = tool_call_buffers.get_mut(&id) {
-                            entry.1.push_str(&delta);
-                        }
-                    }
-
-                    ProviderEvent::ToolCallCompleted { id } => {
-                        if let Some((name, args_json, _)) = tool_call_buffers.remove(&id) {
-                            // Parse accumulated JSON arguments
-                            let args: serde_json::Value =
-                                serde_json::from_str(&args_json).unwrap_or(serde_json::Value::Null);
-
-                            // Emit the tool call event with final arguments
-                            emit_event(
-                                output_tx,
-                                ServerEvent::ToolCall {
-                                    run_id: run_id.clone(),
-                                    id: id.clone(),
-                                    name: name.clone(),
-                                    arguments: args.clone(),
-                                },
-                            );
-
-                            assistant_tool_calls.push(LlmContentBlock::ToolCall {
-                                id,
-                                name,
-                                arguments: args,
-                            });
-                        }
-                    }
-
-                    ProviderEvent::Usage {
-                        input_tokens,
-                        output_tokens,
-                    } => {
-                        usage = Some(UsageInfo {
-                            input_tokens,
-                            output_tokens,
-                        });
-                    }
-
-                    ProviderEvent::Completed => {
-                        // Provider is done — stop consuming
-                        break;
-                    }
-
-                    ProviderEvent::Error { message } => {
-                        turn_error = Some(message);
-                        break;
-                    }
-                }
             }
-
-            // If cancelled during streaming
-            if cancel.is_cancelled() {
-                stop_reason = "aborted".to_string();
-                emit_event(
-                    output_tx,
-                    ServerEvent::TurnEnd {
-                        run_id: run_id.clone(),
-                        turn,
-                        stop_reason: stop_reason.clone(),
-                        usage: None,
-                    },
-                );
-                break;
-            }
-
-            // Handle provider errors
-            if let Some(err_msg) = turn_error {
-                emit_event(
-                    output_tx,
-                    ServerEvent::Error {
-                        run_id: run_id.clone(),
-                        message: err_msg.clone(),
-                    },
-                );
-                // Even on error, we try to persist what we have
-                let has_content = assistant_text.as_ref().is_some_and(|s| !s.is_empty())
-                    || assistant_thinking.as_ref().is_some_and(|s| !s.is_empty())
-                    || !assistant_tool_calls.is_empty();
-                if has_content {
-                    let assistant_msg = transcript::new_assistant_message_with_thinking(
-                        assistant_text,
-                        assistant_thinking,
-                        std::mem::take(&mut assistant_tool_calls),
-                    );
-                    let _ = session_store
-                        .append_message(session_id, &assistant_msg)
-                        .await;
-                    messages.push(assistant_msg);
-                }
-                stop_reason = "error".to_string();
-                emit_event(
-                    output_tx,
-                    ServerEvent::TurnEnd {
-                        run_id: run_id.clone(),
-                        turn,
-                        stop_reason: stop_reason.clone(),
-                        usage,
-                    },
-                );
-                break;
-            }
-
-            // --- 5b. Build and persist assistant message ---------------------------
-            let assistant_msg = transcript::new_assistant_message_with_thinking(
-                assistant_text.clone(),
-                assistant_thinking.clone(),
-                assistant_tool_calls.clone(),
-            );
-
-            let has_tool_calls = !assistant_tool_calls.is_empty();
-            let has_text = assistant_text.as_ref().is_some_and(|s| !s.is_empty());
-            let has_thinking = assistant_thinking.as_ref().is_some_and(|s| !s.is_empty());
-
-            // Only persist assistant message if there's content, thinking, or tool calls
-            if has_text || has_thinking || has_tool_calls {
-                let _ = session_store
-                    .append_message(session_id, &assistant_msg)
-                    .await;
-                messages.push(assistant_msg);
-            }
-
-            // --- 5c. Execute tool calls if any ------------------------------------
-            if !assistant_tool_calls.is_empty() {
-                for tc in &assistant_tool_calls {
-                    match tc {
-                        LlmContentBlock::ToolCall {
-                            id,
-                            name,
-                            arguments,
-                        } => {
-                            // Build tool context
-                            let tool_ctx = ToolContext {
-                                cwd: cwd.clone(),
-                                run_id: run_id.clone(),
-                                event_tx: output_tx.clone(),
-                                ask_manager: ask_manager.clone(),
-                            };
-
-                            // Execute the tool
-                            let result = tool_registry
-                                .execute(name, tool_ctx, arguments.clone(), cancel.clone())
-                                .await;
-
-                            let (content_text, is_error, result_metadata) = match result {
-                                Ok(tool_result) => {
-                                    // Flatten content to text for the transcript
-                                    let text: String = tool_result
-                                        .content
-                                        .iter()
-                                        .filter_map(|b| match b {
-                                            ContentBlock::Text { text } => Some(text.as_str()),
-                                            _ => None,
-                                        })
-                                        .collect::<Vec<_>>()
-                                        .join("\n");
-
-                                    let is_err = tool_result.is_error;
-                                    let metadata = tool_result.metadata.clone();
-
-                                    // Emit tool result event
-                                    emit_event(
-                                        output_tx,
-                                        ServerEvent::ToolResult {
-                                            run_id: run_id.clone(),
-                                            tool_call_id: id.clone(),
-                                            content: vec![ContentBlock::Text {
-                                                text: text.clone(),
-                                            }],
-                                            is_error: is_err,
-                                            metadata: metadata.clone(),
-                                        },
-                                    );
-
-                                    (text, is_err, metadata)
-                                }
-                                Err(e) => {
-                                    let err_text = format!("Tool execution error: {e}");
-
-                                    emit_event(
-                                        output_tx,
-                                        ServerEvent::ToolResult {
-                                            run_id: run_id.clone(),
-                                            tool_call_id: id.clone(),
-                                            content: vec![ContentBlock::Text {
-                                                text: err_text.clone(),
-                                            }],
-                                            is_error: true,
-                                            metadata: None,
-                                        },
-                                    );
-
-                                    (err_text, true, None)
-                                }
-                            };
-
-                            // Create and persist tool result message
-                            let tool_msg = transcript::new_tool_result_message(
-                                id,
-                                name,
-                                content_text,
-                                is_error,
-                                result_metadata,
-                            );
-                            let _ = session_store.append_message(session_id, &tool_msg).await;
-                            messages.push(tool_msg);
-                        }
-                        _ => {}
-                    }
-                }
-
-                // Turn ends with tool calls — continue to next turn
-                emit_event(
-                    output_tx,
-                    ServerEvent::TurnEnd {
-                        run_id: run_id.clone(),
-                        turn,
-                        stop_reason: "tool_calls".to_string(),
-                        usage,
-                    },
-                );
-
-                // Continue to next turn
-                continue;
-            }
-
-            // --- 5d. No tool calls — turn completed --------------------------------
-            let turn_stop_reason = if cancel.is_cancelled() {
-                "aborted"
-            } else {
-                "completed"
-            };
-
-            emit_event(
-                output_tx,
-                ServerEvent::TurnEnd {
-                    run_id: run_id.clone(),
-                    turn,
-                    stop_reason: turn_stop_reason.to_string(),
-                    usage,
-                },
-            );
-
-            stop_reason = turn_stop_reason.to_string();
-            break;
         }
 
-        // --- 6. Emit agent_end ----------------------------------------------------
+        // --- Emit agent_end -----------------------------------------------------
         if cancel.is_cancelled() {
             stop_reason = "aborted".to_string();
         }
 
-        emit_event(
-            output_tx,
-            ServerEvent::AgentEnd {
-                run_id: run_id.clone(),
-                stop_reason: stop_reason.clone(),
-            },
-        );
+        emit_agent_end(output_tx, &run_id, &stop_reason);
 
         RunResult {
             messages,
             stop_reason,
         }
     }
+
+    /// Execute one turn of the agent loop.
+    async fn run_turn(
+        &self,
+        ctx: &RunContext<'_, '_>,
+        messages: &mut Vec<Message>,
+        turn: u32,
+        _stop_reason: &str,
+        cancel: &CancellationToken,
+    ) -> TurnOutcome {
+        let llm_messages = transcript::messages_to_llm(messages);
+
+        let request = ProviderRequest {
+            model: ctx.model.clone(),
+            system_prompt: ctx.system_prompt.to_string(),
+            messages: llm_messages,
+            tools: ctx.tool_defs.to_vec(),
+            thinking_level: ctx.thinking_level.clone(),
+            cwd: ctx.cwd.clone(),
+        };
+
+        let mut rx = match ctx.provider.stream(request, cancel.clone()).await {
+            Ok(rx) => rx,
+            Err(e) => {
+                emit_event(
+                    ctx.output_tx,
+                    ServerEvent::Error {
+                        run_id: ctx.run_id.to_string(),
+                        message: format!("Provider stream failed: {e}"),
+                    },
+                );
+                emit_event(
+                    ctx.output_tx,
+                    ServerEvent::TurnEnd {
+                        run_id: ctx.run_id.to_string(),
+                        turn,
+                        stop_reason: "error".to_string(),
+                        usage: None,
+                    },
+                );
+                return TurnOutcome::Stop {
+                    reason: "error".to_string(),
+                };
+            }
+        };
+
+        let stream_result = self.consume_provider_events(ctx, &mut rx, cancel).await;
+
+        // Check for cancellation during streaming
+        if cancel.is_cancelled() {
+            emit_event(
+                ctx.output_tx,
+                ServerEvent::TurnEnd {
+                    run_id: ctx.run_id.to_string(),
+                    turn,
+                    stop_reason: "aborted".to_string(),
+                    usage: None,
+                },
+            );
+            return TurnOutcome::Stop {
+                reason: "aborted".to_string(),
+            };
+        }
+
+        // Handle provider error
+        if let Some(ref err_msg) = stream_result.error {
+            emit_event(
+                ctx.output_tx,
+                ServerEvent::Error {
+                    run_id: ctx.run_id.to_string(),
+                    message: err_msg.clone(),
+                },
+            );
+
+            let has_content = stream_result.has_content();
+            if has_content {
+                let assistant_msg = transcript::new_assistant_message_with_thinking(
+                    stream_result.text,
+                    stream_result.thinking,
+                    stream_result.tool_calls,
+                );
+                if let Err(e) = ctx
+                    .session_store
+                    .append_message(ctx.session_id, &assistant_msg)
+                    .await
+                {
+                    tracing::error!("Failed to persist assistant message: {e}");
+                }
+                messages.push(assistant_msg);
+            }
+
+            emit_event(
+                ctx.output_tx,
+                ServerEvent::TurnEnd {
+                    run_id: ctx.run_id.to_string(),
+                    turn,
+                    stop_reason: "error".to_string(),
+                    usage: stream_result.usage,
+                },
+            );
+            return TurnOutcome::Stop {
+                reason: "error".to_string(),
+            };
+        }
+
+        // Build and persist assistant message
+        let assistant_msg = transcript::new_assistant_message_with_thinking(
+            stream_result.text.clone(),
+            stream_result.thinking.clone(),
+            stream_result.tool_calls.clone(),
+        );
+
+        if stream_result.has_content() {
+            if let Err(e) = ctx
+                .session_store
+                .append_message(ctx.session_id, &assistant_msg)
+                .await
+            {
+                tracing::error!("Failed to persist assistant message: {e}");
+            }
+            messages.push(assistant_msg);
+        }
+
+        // Execute tool calls if any
+        if !stream_result.tool_calls.is_empty() {
+            self.execute_tool_calls(ctx, &stream_result.tool_calls, messages, cancel)
+                .await;
+
+            emit_event(
+                ctx.output_tx,
+                ServerEvent::TurnEnd {
+                    run_id: ctx.run_id.to_string(),
+                    turn,
+                    stop_reason: "tool_calls".to_string(),
+                    usage: stream_result.usage,
+                },
+            );
+            return TurnOutcome::Continue;
+        }
+
+        // No tool calls — turn completed
+        let reason = if cancel.is_cancelled() {
+            "aborted"
+        } else {
+            "completed"
+        };
+
+        emit_event(
+            ctx.output_tx,
+            ServerEvent::TurnEnd {
+                run_id: ctx.run_id.to_string(),
+                turn,
+                stop_reason: reason.to_string(),
+                usage: stream_result.usage,
+            },
+        );
+
+        TurnOutcome::Stop {
+            reason: reason.to_string(),
+        }
+    }
+
+    /// Consume provider events from the stream receiver.
+    async fn consume_provider_events(
+        &self,
+        ctx: &RunContext<'_, '_>,
+        rx: &mut mpsc::UnboundedReceiver<ProviderEvent>,
+        cancel: &CancellationToken,
+    ) -> StreamResult {
+        let mut result = StreamResult::default();
+        let mut tool_call_buffers: HashMap<String, (String, String)> = HashMap::new();
+        // Maps call_id -> (name, accumulated_args_json)
+
+        while let Some(event) = rx.recv().await {
+            if cancel.is_cancelled() {
+                // Drain but stop processing
+                continue;
+            }
+
+            match event {
+                ProviderEvent::TextDelta { text } => {
+                    let current = result.text.get_or_insert_with(String::new);
+                    current.push_str(&text);
+                    emit_event(
+                        ctx.output_tx,
+                        ServerEvent::TextDelta {
+                            run_id: ctx.run_id.to_string(),
+                            text: text.clone(),
+                            partial: current.clone(),
+                        },
+                    );
+                }
+
+                ProviderEvent::ThinkingDelta { text } => {
+                    let current = result.thinking.get_or_insert_with(String::new);
+                    current.push_str(&text);
+                    emit_event(
+                        ctx.output_tx,
+                        ServerEvent::ThinkingDelta {
+                            run_id: ctx.run_id.to_string(),
+                            text: text.clone(),
+                            partial: current.clone(),
+                        },
+                    );
+                }
+
+                ProviderEvent::ThinkingEnd => {
+                    emit_event(
+                        ctx.output_tx,
+                        ServerEvent::ThinkingEnd {
+                            run_id: ctx.run_id.to_string(),
+                        },
+                    );
+                }
+
+                ProviderEvent::ToolCallStarted { id, name } => {
+                    tool_call_buffers.insert(id, (name, String::new()));
+                }
+
+                ProviderEvent::ToolCallArgumentsDelta { id, delta } => {
+                    if let Some((_name, args)) = tool_call_buffers.get_mut(&id) {
+                        args.push_str(&delta);
+                    }
+                }
+
+                ProviderEvent::ToolCallCompleted { id } => {
+                    if let Some((name, args_json)) = tool_call_buffers.remove(&id) {
+                        let args: serde_json::Value =
+                            serde_json::from_str(&args_json).unwrap_or(serde_json::Value::Null);
+
+                        emit_event(
+                            ctx.output_tx,
+                            ServerEvent::ToolCall {
+                                run_id: ctx.run_id.to_string(),
+                                id: id.clone(),
+                                name: name.clone(),
+                                arguments: args.clone(),
+                            },
+                        );
+
+                        result.tool_calls.push(LlmContentBlock::ToolCall {
+                            id,
+                            name,
+                            arguments: args,
+                        });
+                    }
+                }
+
+                ProviderEvent::Usage {
+                    input_tokens,
+                    output_tokens,
+                } => {
+                    result.usage = Some(UsageInfo {
+                        input_tokens,
+                        output_tokens,
+                    });
+                }
+
+                ProviderEvent::Completed => break,
+
+                ProviderEvent::Error { message } => {
+                    result.error = Some(message);
+                    break;
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Execute tool calls and append tool result messages.
+    async fn execute_tool_calls(
+        &self,
+        ctx: &RunContext<'_, '_>,
+        tool_calls: &[LlmContentBlock],
+        messages: &mut Vec<Message>,
+        cancel: &CancellationToken,
+    ) {
+        for tc in tool_calls {
+            if let LlmContentBlock::ToolCall {
+                id,
+                name,
+                arguments,
+            } = tc
+            {
+                let tool_ctx = ToolContext {
+                    cwd: ctx.cwd.clone(),
+                    run_id: ctx.run_id.to_string(),
+                    event_tx: ctx.output_tx.clone(),
+                    ask_manager: ctx.ask_manager.clone(),
+                };
+
+                let result = ctx
+                    .tool_registry
+                    .execute(name, tool_ctx, arguments.clone(), cancel.clone())
+                    .await;
+
+                let (content_text, is_error, result_metadata) = match result {
+                    Ok(tool_result) => {
+                        let text: String = tool_result
+                            .content
+                            .iter()
+                            .filter_map(|b| match b {
+                                ContentBlock::Text { text } => Some(text.as_str()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+
+                        let is_err = tool_result.is_error;
+                        let metadata = tool_result.metadata.clone();
+
+                        emit_event(
+                            ctx.output_tx,
+                            ServerEvent::ToolResult {
+                                run_id: ctx.run_id.to_string(),
+                                tool_call_id: id.clone(),
+                                content: vec![ContentBlock::Text { text: text.clone() }],
+                                is_error: is_err,
+                                metadata: metadata.clone(),
+                            },
+                        );
+
+                        (text, is_err, metadata)
+                    }
+                    Err(e) => {
+                        let err_text = format!("Tool execution error: {e}");
+
+                        emit_event(
+                            ctx.output_tx,
+                            ServerEvent::ToolResult {
+                                run_id: ctx.run_id.to_string(),
+                                tool_call_id: id.clone(),
+                                content: vec![ContentBlock::Text {
+                                    text: err_text.clone(),
+                                }],
+                                is_error: true,
+                                metadata: None,
+                            },
+                        );
+
+                        (err_text, true, None)
+                    }
+                };
+
+                let tool_msg = transcript::new_tool_result_message(
+                    id,
+                    name,
+                    content_text,
+                    is_error,
+                    result_metadata,
+                );
+                if let Err(e) = ctx
+                    .session_store
+                    .append_message(ctx.session_id, &tool_msg)
+                    .await
+                {
+                    tracing::error!("Failed to persist tool result: {e}");
+                }
+                messages.push(tool_msg);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper types
+// ---------------------------------------------------------------------------
+
+/// Bundles immutable shared state for a run to avoid argument sprawl.
+struct RunContext<'a, 'b> {
+    run_id: &'a Arc<str>,
+    system_prompt: &'a str,
+    tool_defs: &'a [ToolDefinition],
+    model: &'a ModelInfo,
+    thinking_level: &'a ThinkingLevel,
+    cwd: &'a PathBuf,
+    session_store: &'a SessionStore,
+    session_id: &'a str,
+    tool_registry: &'a ToolRegistry,
+    output_tx: &'a mpsc::UnboundedSender<OutputItem>,
+    ask_manager: &'a AskManagerHandle,
+    provider: &'b dyn LlmProvider,
+}
+
+/// Collected output from consuming a provider event stream.
+#[derive(Default)]
+struct StreamResult {
+    text: Option<String>,
+    thinking: Option<String>,
+    tool_calls: Vec<LlmContentBlock>,
+    usage: Option<UsageInfo>,
+    error: Option<String>,
+}
+
+impl StreamResult {
+    fn has_content(&self) -> bool {
+        self.text.as_ref().is_some_and(|s| !s.is_empty())
+            || self.thinking.as_ref().is_some_and(|s| !s.is_empty())
+            || !self.tool_calls.is_empty()
+    }
+}
+
+enum TurnOutcome {
+    Continue,
+    Stop { reason: String },
+}
+
+// ---------------------------------------------------------------------------
+// Event helpers
+// ---------------------------------------------------------------------------
+
+fn emit_event_with_agent_start(tx: &mpsc::UnboundedSender<OutputItem>, run_id: &Arc<str>) {
+    emit_event(
+        tx,
+        ServerEvent::AgentStart {
+            run_id: run_id.to_string(),
+        },
+    );
+}
+
+fn emit_agent_end(tx: &mpsc::UnboundedSender<OutputItem>, run_id: &Arc<str>, stop_reason: &str) {
+    emit_event(
+        tx,
+        ServerEvent::AgentEnd {
+            run_id: run_id.to_string(),
+            stop_reason: stop_reason.to_string(),
+        },
+    );
 }

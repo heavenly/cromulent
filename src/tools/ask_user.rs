@@ -27,6 +27,12 @@ pub(crate) struct AskManagerState {
     pub pending: HashMap<String, oneshot::Sender<AskUserResponse>>,
 }
 
+impl Default for AskManagerHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AskManagerHandle {
     pub fn new() -> Self {
         Self {

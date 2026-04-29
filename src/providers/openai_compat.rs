@@ -1,16 +1,14 @@
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::StreamExt;
 use tokio::sync::mpsc;
-use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
 use crate::protocol::types::{
     LlmContentBlock, LlmMessage, ProviderEvent, ProviderRequest, ToolDefinition,
 };
+use crate::providers::retry::send_with_retries;
 use crate::providers::{LlmProvider, ProviderError};
 
 /// Adapter for any OpenAI-compatible Chat Completions API.
@@ -29,7 +27,11 @@ pub struct OpenAiCompatProvider {
 
 impl OpenAiCompatProvider {
     /// Create a provider with the given name, API key, and base URL.
-    pub fn new(name: impl Into<String>, api_key: Option<String>, base_url: impl Into<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        api_key: Option<String>,
+        base_url: impl Into<String>,
+    ) -> Self {
         Self {
             name: name.into(),
             api_key,
@@ -83,14 +85,15 @@ impl LlmProvider for OpenAiCompatProvider {
         let (tx, rx) = mpsc::unbounded_channel();
 
         tokio::spawn(async move {
-            let response = match send_with_retries(&client, &url, &name, &api_key, &body, &cancel).await {
-                Ok(resp) => resp,
-                Err(message) => {
-                    let _ = tx.send(ProviderEvent::Error { message });
-                    let _ = tx.send(ProviderEvent::Completed);
-                    return;
-                }
-            };
+            let response =
+                match send_with_retries(&client, &url, &name, &api_key, &body, &cancel).await {
+                    Ok(resp) => resp,
+                    Err(message) => {
+                        let _ = tx.send(ProviderEvent::Error { message });
+                        let _ = tx.send(ProviderEvent::Completed);
+                        return;
+                    }
+                };
 
             let mut stream = response.bytes_stream();
             let mut buffer = String::new();
@@ -131,75 +134,6 @@ impl LlmProvider for OpenAiCompatProvider {
 
         Ok(rx)
     }
-}
-
-const MAX_REQUEST_ATTEMPTS: usize = 5;
-
-async fn send_with_retries(
-    client: &reqwest::Client,
-    url: &str,
-    name: &str,
-    api_key: &str,
-    body: &serde_json::Value,
-    cancel: &CancellationToken,
-) -> Result<reqwest::Response, String> {
-    let mut last_error = String::new();
-
-    for attempt in 1..=MAX_REQUEST_ATTEMPTS {
-        if cancel.is_cancelled() {
-            return Err(format!("{name} request cancelled"));
-        }
-
-        let result = client
-            .post(url)
-            .bearer_auth(api_key)
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .header(reqwest::header::ACCEPT, "text/event-stream")
-            .json(body)
-            .send()
-            .await;
-
-        match result {
-            Ok(response) if response.status().is_success() => return Ok(response),
-            Ok(response) => {
-                let status = response.status();
-                let retryable = status.as_u16() == 429 || status.is_server_error();
-                let body_text = response.text().await.unwrap_or_default();
-                last_error = format!("{name} HTTP {status}: {body_text}");
-                if !retryable || attempt == MAX_REQUEST_ATTEMPTS {
-                    return Err(with_attempts(last_error, attempt));
-                }
-            }
-            Err(err) => {
-                last_error = format!("{name} request failed: {}", format_reqwest_error(&err));
-                if attempt == MAX_REQUEST_ATTEMPTS {
-                    return Err(with_attempts(last_error, attempt));
-                }
-            }
-        }
-
-        sleep(retry_delay(attempt)).await;
-    }
-
-    Err(with_attempts(last_error, MAX_REQUEST_ATTEMPTS))
-}
-
-fn retry_delay(attempt: usize) -> Duration {
-    Duration::from_millis(250 * attempt as u64)
-}
-
-fn with_attempts(message: String, attempts: usize) -> String {
-    format!("{message} (after {attempts}/{MAX_REQUEST_ATTEMPTS} attempts)")
-}
-
-fn format_reqwest_error(err: &reqwest::Error) -> String {
-    let mut parts = vec![err.to_string()];
-    let mut source = err.source();
-    while let Some(src) = source {
-        parts.push(src.to_string());
-        source = src.source();
-    }
-    parts.join("; source: ")
 }
 
 fn build_request_body(request: &ProviderRequest) -> serde_json::Value {
@@ -447,7 +381,11 @@ mod tests {
 
     #[test]
     fn test_new_provider() {
-        let p = OpenAiCompatProvider::new("test", Some("key".into()), "https://example.com/v1/chat/completions");
+        let p = OpenAiCompatProvider::new(
+            "test",
+            Some("key".into()),
+            "https://example.com/v1/chat/completions",
+        );
         assert!(p.is_configured());
         assert_eq!(p.name(), "test");
 
@@ -487,7 +425,9 @@ mod tests {
             messages: vec![LlmMessage {
                 role: "assistant".into(),
                 content: vec![
-                    LlmContentBlock::Thinking { text: "reason".into() },
+                    LlmContentBlock::Thinking {
+                        text: "reason".into(),
+                    },
                     LlmContentBlock::ToolCall {
                         id: "call_1".into(),
                         name: "find".into(),
@@ -618,7 +558,10 @@ mod tests {
         // Should get ToolCallArgumentsDelta with the SAME id
         match rx.try_recv().unwrap() {
             ProviderEvent::ToolCallArgumentsDelta { id, delta } => {
-                assert_eq!(id, "call_00_abc123", "subsequent delta must use the real id from index→id map");
+                assert_eq!(
+                    id, "call_00_abc123",
+                    "subsequent delta must use the real id from index→id map"
+                );
                 assert_eq!(delta, "{\"command\":");
             }
             other => panic!("expected ToolCallArgumentsDelta, got {other:?}"),

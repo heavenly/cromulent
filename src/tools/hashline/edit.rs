@@ -122,7 +122,7 @@ impl Tool for HashlineEditTool {
             let st = s.saturating_sub(2).max(1);
             let en = (e + 2).min(new_lines.len());
             let text = if st <= en && !new_lines.is_empty() {
-                format_hashline_region(&new_lines[st - 1..en].to_vec(), st)
+                format_hashline_region(&new_lines[st - 1..en], st)
             } else {
                 String::new()
             };

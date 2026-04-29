@@ -12,17 +12,10 @@ use crate::util::fs::default_cromulent_dir;
 /// OpenAI-compatible Chat Completions configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct ProvidersConfigFile {
     #[serde(default)]
     pub providers: HashMap<String, ProviderAuthConfig>,
-}
-
-impl Default for ProvidersConfigFile {
-    fn default() -> Self {
-        Self {
-            providers: HashMap::new(),
-        }
-    }
 }
 
 /// Get the default path for the custom providers config file.

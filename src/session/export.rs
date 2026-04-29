@@ -44,8 +44,7 @@ pub async fn export_session(
     session: &LoadedSessionState,
 ) -> std::io::Result<()> {
     let export = SessionExport::from(session);
-    let json = serde_json::to_string_pretty(&export)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let json = serde_json::to_string_pretty(&export).map_err(|e| std::io::Error::other(e))?;
     tokio::fs::write(path.as_ref(), &json).await
 }
 

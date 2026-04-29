@@ -123,7 +123,9 @@ async fn main() {
     // ------------------------------------------------------------------
 
     let session_store = session::store::SessionStore::new(sessions_dir);
-    let _ = session_store.ensure_dir().await;
+    if let Err(e) = session_store.ensure_dir().await {
+        tracing::error!(error = %e, "Failed to create sessions directory");
+    }
 
     let loaded_session = if let Some(session_id) = &cli.session {
         // Load existing session; fall back to new session on failure

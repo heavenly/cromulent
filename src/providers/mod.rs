@@ -10,6 +10,7 @@ use crate::protocol::types::{ModelInfo, ProviderEvent, ProviderRequest};
 mod fake;
 mod openai_compat;
 mod openai_responses;
+pub(crate) mod retry;
 
 pub use fake::FakeProvider;
 pub use openai_compat::OpenAiCompatProvider;
@@ -83,6 +84,12 @@ pub struct ProviderManager {
     providers: HashMap<String, Box<dyn LlmProvider>>,
 }
 
+impl Default for ProviderManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProviderManager {
     pub fn new() -> Self {
         Self {
@@ -130,8 +137,10 @@ impl ProviderManager {
         mgr.register("fake", Box::new(FakeProvider::default()));
 
         let openai_key = config.resolve_api_key("openai");
-        mgr.register("openai", Box::new(OpenAiResponsesProvider::with_api_key(openai_key)));
-
+        mgr.register(
+            "openai",
+            Box::new(OpenAiResponsesProvider::with_api_key(openai_key)),
+        );
 
         // Register any custom providers defined in config.json
         mgr.register_custom_from_app_config(config);
@@ -142,10 +151,7 @@ impl ProviderManager {
     /// Register custom providers from the `providers` map in the app config.
     /// Skips built-in names (`openai`, `fake`) that already have
     /// dedicated adapters.
-    pub fn register_custom_from_app_config(
-        &mut self,
-        config: &crate::auth::config::AppConfigFile,
-    ) {
+    pub fn register_custom_from_app_config(&mut self, config: &crate::auth::config::AppConfigFile) {
         let builtins: &[&str] = &["openai", "fake"];
         for (name, auth) in &config.providers {
             if builtins.contains(&name.as_str()) {

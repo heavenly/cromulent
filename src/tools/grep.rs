@@ -247,62 +247,7 @@ impl Tool for GrepTool {
 /// Simple glob-to-path matching.
 /// Supports `*` (within one path component), `**` (cross-component), and `?` (single char).
 fn simple_glob_match(glob: &str, path: &str) -> bool {
-    // Convert glob pattern to regex
-    let mut re_str = String::with_capacity(glob.len() + 4);
-    re_str.push('^');
-    for ch in glob.chars() {
-        match ch {
-            '*' => re_str.push_str("[^/]*"),
-            '?' => re_str.push('.'),
-            '.' => re_str.push_str("\\."),
-            '/' => re_str.push('/'),
-            // Escape other regex meta-characters
-            '\\' | '+' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|' => {
-                re_str.push('\\');
-                re_str.push(ch);
-            }
-            other => re_str.push(other),
-        }
-    }
-    re_str.push('$');
-
-    // Handle double-star: replace `[^/]*[^/]*`  or just handle it at a higher level
-    // Actually our current conversion makes `*` -> `[^/]*`, so `**` -> `[^/]*[^/]*` which matches
-    // across path separators correctly because `[^/]*` matches anything except `/`.
-    // Wait, that's wrong. `**` should match across `/`, but our `*` already only matches within one component.
-    // Let me fix: replace `**` with `.*` before processing
-    let fixed_glob = glob.replace("**", "$$DOUBLESTAR$$");
-    let mut re_str2 = String::with_capacity(fixed_glob.len() + 4);
-    re_str2.push('^');
-    for ch in fixed_glob.chars() {
-        match ch {
-            '*' => re_str2.push_str("[^/]*"),
-            '?' => re_str2.push('.'),
-            '.' => re_str2.push_str("\\."),
-            '/' => re_str2.push('/'),
-            '$' => {
-                // Check if it's the start of our placeholder
-                // Simple approach: just handle the placeholder char by char
-                // $$DOUBLESTAR$$ -> we need to handle the '$' specially
-                re_str2.push_str(".*");
-                // Skip the rest of the placeholder
-                // Hmm, this is getting messy. Let me use a simpler approach.
-                // Actually, this won't work well with char-by-char iteration.
-                // Let me use a different approach below.
-            }
-            '\\' | '+' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '|' => {
-                re_str2.push('\\');
-                re_str2.push(ch);
-            }
-            other => re_str2.push(other),
-        }
-    }
-    re_str2.push('$');
-
-    // Hmm, the above approach is flawed with the placeholder. Let me use string replacement instead.
-    // Re-do the whole thing properly.
-    let re = build_glob_regex(glob);
-    re.is_match(path)
+    build_glob_regex(glob).is_match(path)
 }
 
 fn build_glob_regex(glob: &str) -> Regex {

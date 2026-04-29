@@ -3,7 +3,7 @@ use crate::session::store::{LoadedSessionState, SessionHeader};
 use crate::util::time::now_iso;
 
 /// Options for forking a session.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ForkOptions {
     /// If set, override the model info in the forked header.
     pub model: Option<ModelInfo>,
@@ -11,16 +11,6 @@ pub struct ForkOptions {
     pub thinking_level: Option<ThinkingLevel>,
     /// If set, override the cwd in the forked header.
     pub cwd: Option<String>,
-}
-
-impl Default for ForkOptions {
-    fn default() -> Self {
-        Self {
-            model: None,
-            thinking_level: None,
-            cwd: None,
-        }
-    }
 }
 
 /// Fork a loaded session up to (and including) the message with the given entry ID.

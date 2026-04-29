@@ -101,8 +101,7 @@ pub async fn save_cached_credentials(
     if let Some(parent) = path.as_ref().parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    let json = serde_json::to_string_pretty(cache)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let json = serde_json::to_string_pretty(cache).map_err(|e| std::io::Error::other(e))?;
     tokio::fs::write(path.as_ref(), &json).await
 }
 

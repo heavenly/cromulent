@@ -6,7 +6,7 @@ use cromulent::protocol::types::{
     LlmContentBlock, LlmMessage, ModelInfo, ProviderEvent, ProviderRequest, ThinkingLevel,
 };
 use cromulent::providers::{
-    OpenAiCompatProvider, FakeProvider, LlmProvider, OpenAiResponsesProvider, ProviderError,
+    FakeProvider, LlmProvider, OpenAiCompatProvider, OpenAiResponsesProvider, ProviderError,
     ProviderManager,
 };
 
@@ -130,15 +130,17 @@ fn test_openai_api_key_present_does_not_stream_without_network() {
     );
 }
 
-
-
 // -----------------------------------------------------------------------
 // OpenAiCompatProvider: API key missing
 // -----------------------------------------------------------------------
 
 #[test]
 fn test_openai_compat_api_key_missing() {
-    let provider = OpenAiCompatProvider::new("deepseek", None, "https://api.deepseek.com/chat/completions");
+    let provider = OpenAiCompatProvider::new(
+        "deepseek",
+        None,
+        "https://api.deepseek.com/chat/completions",
+    );
     assert!(!provider.is_configured());
 
     let cancel = CancellationToken::new();
@@ -157,7 +159,11 @@ fn test_openai_compat_api_key_missing() {
 #[test]
 fn test_openai_compat_api_key_present() {
     let (provider, cancel) = (
-        OpenAiCompatProvider::new("deepseek", Some("sk-test-deepseek-key".to_string()), "https://api.deepseek.com/chat/completions"),
+        OpenAiCompatProvider::new(
+            "deepseek",
+            Some("sk-test-deepseek-key".to_string()),
+            "https://api.deepseek.com/chat/completions",
+        ),
         CancellationToken::new(),
     );
     assert!(provider.is_configured());
