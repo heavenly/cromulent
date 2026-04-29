@@ -44,9 +44,8 @@ impl AskManagerHandle {
     }
 
     /// Resolve a pending ask by sending the response.
-    /// Uses blocking_lock() for sync compatibility with AppRuntime.
-    pub fn resolve(&self, ask_id: &str, response: AskUserResponse) -> Result<(), String> {
-        let mut state = self.inner.blocking_lock();
+    pub async fn resolve(&self, ask_id: &str, response: AskUserResponse) -> Result<(), String> {
+        let mut state = self.inner.lock().await;
         match state.pending.remove(ask_id) {
             Some(sender) => sender
                 .send(response)
@@ -56,9 +55,8 @@ impl AskManagerHandle {
     }
 
     /// Cancel all pending asks.
-    /// Uses blocking_lock() for sync compatibility with AppRuntime.
-    pub fn cancel_all(&self) {
-        let mut state = self.inner.blocking_lock();
+    pub async fn cancel_all(&self) {
+        let mut state = self.inner.lock().await;
         state.pending.clear();
     }
 }

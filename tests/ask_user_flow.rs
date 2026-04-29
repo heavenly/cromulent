@@ -12,6 +12,22 @@ fn register_sync(
         .block_on(manager.register(id))
 }
 
+fn resolve_sync(
+    manager: &AskManagerHandle,
+    ask_id: &str,
+    response: AskUserResponse,
+) -> Result<(), String> {
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(manager.resolve(ask_id, response))
+}
+
+fn cancel_all_sync(manager: &AskManagerHandle) {
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(manager.cancel_all())
+}
+
 // -----------------------------------------------------------------------
 // Resolve unknown ask ID returns error
 // -----------------------------------------------------------------------
@@ -26,7 +42,7 @@ fn test_ask_resolve_unknown_id() {
         comment: None,
     };
 
-    let result = manager.resolve("nonexistent_ask", response);
+    let result = resolve_sync(&manager, "nonexistent_ask", response);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.contains("Unknown") || err.contains("nonexistent_ask"));
@@ -49,7 +65,7 @@ fn test_ask_register_and_resolve() {
         comment: None,
     };
 
-    assert!(manager.resolve(ask_id, response).is_ok());
+    assert!(resolve_sync(&manager, ask_id, response).is_ok());
 
     let received = rx.try_recv().expect("should have value immediately");
     assert_eq!(received.selected, vec!["Option A"]);
@@ -70,7 +86,7 @@ fn test_ask_register_resolve_with_comment() {
         comment: Some("Looks good!".into()),
     };
 
-    assert!(manager.resolve(ask_id, response).is_ok());
+    assert!(resolve_sync(&manager, ask_id, response).is_ok());
 
     let received = rx.try_recv().expect("should have value immediately");
     assert!(received.selected.is_empty());
@@ -89,27 +105,27 @@ fn test_ask_multiple_independent() {
     let mut rx1 = register_sync(&manager, "ask_a");
     let mut rx2 = register_sync(&manager, "ask_b");
 
-    assert!(manager
-        .resolve(
-            "ask_a",
-            AskUserResponse {
-                selected: vec!["A".into()],
-                freeform: None,
-                comment: None,
-            },
-        )
-        .is_ok());
+    assert!(resolve_sync(
+        &manager,
+        "ask_a",
+        AskUserResponse {
+            selected: vec!["A".into()],
+            freeform: None,
+            comment: None,
+        },
+    )
+    .is_ok());
 
-    assert!(manager
-        .resolve(
-            "ask_b",
-            AskUserResponse {
-                selected: vec!["B".into()],
-                freeform: None,
-                comment: None,
-            },
-        )
-        .is_ok());
+    assert!(resolve_sync(
+        &manager,
+        "ask_b",
+        AskUserResponse {
+            selected: vec!["B".into()],
+            freeform: None,
+            comment: None,
+        },
+    )
+    .is_ok());
 
     assert_eq!(rx1.try_recv().unwrap().selected, vec!["A"]);
     assert_eq!(rx2.try_recv().unwrap().selected, vec!["B"]);
@@ -132,14 +148,14 @@ fn test_ask_duplicate_resolve_error() {
         comment: None,
     };
 
-    assert!(manager.resolve(ask_id, response).is_ok());
+    assert!(resolve_sync(&manager, ask_id, response).is_ok());
 
     let response2 = AskUserResponse {
         selected: vec!["Second".into()],
         freeform: None,
         comment: None,
     };
-    let result = manager.resolve(ask_id, response2);
+    let result = resolve_sync(&manager, ask_id, response2);
     assert!(result.is_err());
 }
 
@@ -154,7 +170,7 @@ fn test_ask_cancel_all() {
     let mut rx1 = register_sync(&manager, "ask_cancel_1");
     let mut rx2 = register_sync(&manager, "ask_cancel_2");
 
-    manager.cancel_all();
+    cancel_all_sync(&manager);
 
     assert!(rx1.try_recv().is_err(), "First ask should be cancelled");
     assert!(rx2.try_recv().is_err(), "Second ask should be cancelled");
@@ -167,7 +183,7 @@ fn test_ask_cancel_then_resolve_returns_error() {
 
     let _rx = register_sync(&manager, ask_id);
 
-    manager.cancel_all();
+    cancel_all_sync(&manager);
 
     let response = AskUserResponse {
         selected: vec![],
@@ -175,7 +191,7 @@ fn test_ask_cancel_then_resolve_returns_error() {
         comment: None,
     };
 
-    let result = manager.resolve(ask_id, response);
+    let result = resolve_sync(&manager, ask_id, response);
     assert!(result.is_err());
 }
 
@@ -196,16 +212,16 @@ fn test_ask_register_twice_same_id() {
     // rx1 should get nothing (channel replaced)
     assert!(rx1.try_recv().is_err());
 
-    assert!(manager
-        .resolve(
-            ask_id,
-            AskUserResponse {
-                selected: vec!["B".into()],
-                freeform: None,
-                comment: None,
-            },
-        )
-        .is_ok());
+    assert!(resolve_sync(
+        &manager,
+        ask_id,
+        AskUserResponse {
+            selected: vec!["B".into()],
+            freeform: None,
+            comment: None,
+        },
+    )
+    .is_ok());
 
     assert!(rx1.try_recv().is_err());
     assert_eq!(rx2.try_recv().unwrap().selected, vec!["B"]);
@@ -227,7 +243,7 @@ fn test_ask_handle_clone_shares_state() {
         freeform: None,
         comment: None,
     };
-    assert!(manager.resolve("ask_clone", response).is_ok());
+    assert!(resolve_sync(&manager, "ask_clone", response).is_ok());
 
     let received = rx.try_recv().expect("should have value immediately");
     assert_eq!(received.selected, vec!["cloned"]);

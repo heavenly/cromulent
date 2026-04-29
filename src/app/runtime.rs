@@ -179,7 +179,7 @@ impl AppRuntime {
                     },
                 );
             }
-            self.ask_manager.cancel_all();
+            self.ask_manager.cancel_all().await;
             let mut state = self.state.lock().await;
             state.run_state = RunState::Idle;
         }
@@ -194,7 +194,7 @@ impl AppRuntime {
         ask_id: String,
         response: AskUserResponse,
     ) {
-        match self.ask_manager.resolve(&ask_id, response) {
+        match self.ask_manager.resolve(&ask_id, response).await {
             Ok(()) => respond(&self.output_tx, CommandResponse::ok(id)),
             Err(e) => respond(&self.output_tx, CommandResponse::err(id, e)),
         }
