@@ -119,8 +119,8 @@ impl LlmProvider for OpenAiCompatProvider {
 
                 buffer.push_str(&String::from_utf8_lossy(&chunk));
                 while let Some(idx) = buffer.find('\n') {
-                    let line = buffer[..idx].trim().to_string();
-                    buffer = buffer[idx + 1..].to_string();
+                    let line = buffer[..idx].trim().to_owned();
+                    buffer.drain(..=idx);
                     process_sse_line(&line, &tx, &mut open_tool_calls, &mut index_to_id);
                 }
             }
