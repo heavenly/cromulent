@@ -204,7 +204,7 @@ pub struct AskOption {
 }
 
 /// User's response to an ask
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AskUserResponse {
     #[serde(default)]

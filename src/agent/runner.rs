@@ -60,7 +60,7 @@ impl AgentRunner {
         session_id: &str,
         tool_registry: &ToolRegistry,
         output_tx: &mpsc::UnboundedSender<OutputItem>,
-        provider_manager: &ProviderManager,
+        provider_manager: &Arc<ProviderManager>,
         ask_manager: &AskManagerHandle,
         cancel: CancellationToken,
         max_turns: u32,
@@ -69,12 +69,12 @@ impl AgentRunner {
         let run_id = Arc::from(run_id);
 
         // --- Build system prompt and tool defs once -------------------------------
-        let tool_defs: Vec<ToolDefinition> = tool_registry.definitions().to_vec();
+        let tool_defs = tool_registry.definitions_arc();
         let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
         let system_prompt = build_system_prompt(&PromptContext {
             cwd: cwd.to_string_lossy().to_string(),
             date,
-            tools: tool_defs.clone(),
+            tools: (*tool_defs).clone(),
         });
 
         // --- Resolve provider ----------------------------------------------------
@@ -159,7 +159,7 @@ impl AgentRunner {
     /// Execute one turn of the agent loop.
     async fn run_turn(
         &self,
-        ctx: &RunContext<'_, '_>,
+        ctx: &RunContext<'_>,
         messages: &mut Vec<Message>,
         turn: u32,
         _stop_reason: &str,
@@ -171,7 +171,7 @@ impl AgentRunner {
             model: ctx.model.clone(),
             system_prompt: ctx.system_prompt.to_string(),
             messages: llm_messages,
-            tools: ctx.tool_defs.to_vec(),
+            tools: (**ctx.tool_defs).clone(),
             thinking_level: ctx.thinking_level.clone(),
         };
 
@@ -319,7 +319,7 @@ impl AgentRunner {
     /// Consume provider events from the stream receiver.
     async fn consume_provider_events(
         &self,
-        ctx: &RunContext<'_, '_>,
+        ctx: &RunContext<'_>,
         rx: &mut mpsc::UnboundedReceiver<ProviderEvent>,
         cancel: &CancellationToken,
     ) -> StreamResult {
@@ -427,7 +427,7 @@ impl AgentRunner {
     /// Execute tool calls and append tool result messages.
     async fn execute_tool_calls(
         &self,
-        ctx: &RunContext<'_, '_>,
+        ctx: &RunContext<'_>,
         tool_calls: &[LlmContentBlock],
         messages: &mut Vec<Message>,
         cancel: &CancellationToken,
@@ -524,10 +524,10 @@ impl AgentRunner {
 // ---------------------------------------------------------------------------
 
 /// Bundles immutable shared state for a run to avoid argument sprawl.
-struct RunContext<'a, 'b> {
+struct RunContext<'a> {
     run_id: &'a Arc<str>,
     system_prompt: &'a str,
-    tool_defs: &'a [ToolDefinition],
+    tool_defs: &'a Arc<Vec<ToolDefinition>>,
     model: &'a ModelInfo,
     thinking_level: &'a ThinkingLevel,
     cwd: &'a PathBuf,
@@ -536,7 +536,7 @@ struct RunContext<'a, 'b> {
     tool_registry: &'a ToolRegistry,
     output_tx: &'a mpsc::UnboundedSender<OutputItem>,
     ask_manager: &'a AskManagerHandle,
-    provider: &'b dyn LlmProvider,
+    provider: &'a dyn LlmProvider,
 }
 
 /// Collected output from consuming a provider event stream.

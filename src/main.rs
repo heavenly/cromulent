@@ -176,11 +176,13 @@ async fn main() {
     // Build runtime
     // ------------------------------------------------------------------
 
+    let provider_manager = providers::ProviderManager::default_with_config(&config_file);
     let runtime = app::runtime::AppRuntime::new(
         shared_state,
         output_tx.clone(),
         session_store,
         tools::registry::ToolRegistry::default(),
+        provider_manager,
         process::bash_runner::BashRunner::new(cwd),
         tools::ask_user::AskManagerHandle::new(),
         config_file,

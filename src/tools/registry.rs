@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
@@ -29,8 +30,11 @@ pub trait Tool: Send + Sync {
 }
 
 /// Thread-safe handle that owns all registered tools.
+/// Cache tool definitions for zero-allocation access during runs.
 pub struct ToolRegistry {
     tools: HashMap<String, Box<dyn Tool>>,
+    /// Precomputed definitions, shared-reference friendly for runs.
+    definitions: Arc<Vec<ToolDefinition>>,
 }
 
 impl ToolRegistry {
@@ -38,6 +42,7 @@ impl ToolRegistry {
     pub fn new() -> Self {
         Self {
             tools: HashMap::new(),
+            definitions: Arc::new(Vec::new()),
         }
     }
 
@@ -54,10 +59,16 @@ impl ToolRegistry {
         reg
     }
 
-    /// Register a tool by name (from its definition).
+    /// Register a tool by name (from its definition). Rebuilds the cached definitions.
     pub fn register(&mut self, tool: Box<dyn Tool>) {
         let name = tool.definition().name.clone();
         self.tools.insert(name, tool);
+        self.rebuild_definitions();
+    }
+
+    fn rebuild_definitions(&mut self) {
+        let defs: Vec<ToolDefinition> = self.tools.values().map(|t| t.definition()).collect();
+        self.definitions = Arc::new(defs);
     }
 
     /// Execute a named tool.
@@ -74,9 +85,15 @@ impl ToolRegistry {
         }
     }
 
-    /// Returns all registered tool definitions.
+    /// Returns all registered tool definitions as a Vec (clone of the cached Arc).
+    /// For frequent access without allocation, use [`definitions_arc`].
     pub fn definitions(&self) -> Vec<ToolDefinition> {
-        self.tools.values().map(|t| t.definition()).collect()
+        (*self.definitions).clone()
+    }
+
+    /// Returns a shared reference to the precomputed tool definitions.
+    pub fn definitions_arc(&self) -> Arc<Vec<ToolDefinition>> {
+        self.definitions.clone()
     }
 }
 

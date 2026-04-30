@@ -25,6 +25,7 @@ pub struct AppRuntime {
     pub output_tx: mpsc::UnboundedSender<OutputItem>,
     pub session_store: SessionStore,
     pub tool_registry: Arc<ToolRegistry>,
+    pub provider_manager: Arc<ProviderManager>,
     pub bash_runner: std::sync::Mutex<BashRunner>,
     pub bash_cancel: std::sync::Mutex<Option<CancellationToken>>,
     pub ask_manager: AskManagerHandle,
@@ -37,6 +38,7 @@ impl AppRuntime {
         output_tx: mpsc::UnboundedSender<OutputItem>,
         session_store: SessionStore,
         tool_registry: ToolRegistry,
+        provider_manager: ProviderManager,
         bash_runner: BashRunner,
         ask_manager: AskManagerHandle,
         config: AppConfigFile,
@@ -46,6 +48,7 @@ impl AppRuntime {
             output_tx,
             session_store,
             tool_registry: Arc::new(tool_registry),
+            provider_manager: Arc::new(provider_manager),
             bash_runner: std::sync::Mutex::new(bash_runner),
             bash_cancel: std::sync::Mutex::new(None),
             ask_manager,
@@ -113,10 +116,9 @@ impl AppRuntime {
         let session_store = self.session_store.clone();
         let tool_registry = self.tool_registry.clone();
         let ask_manager = self.ask_manager.clone();
-        let config = self.config.clone();
+        let provider_manager = self.provider_manager.clone();
         tokio::spawn(async move {
             let runner = AgentRunner::new();
-            let provider_manager = ProviderManager::default_with_config(&config);
             let result = runner
                 .run_prompt(
                     messages,

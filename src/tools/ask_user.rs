@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use tokio::sync::oneshot;
+use tokio::time::{self, Duration};
 use tokio_util::sync::CancellationToken;
 
 use crate::protocol::events::ServerEvent;
@@ -200,19 +201,55 @@ impl Tool for AskUserTool {
             serde_json::to_value(ev).expect("Ask event serialization failed"),
         ));
 
-        // Wait for the response or cancellation
-        let response = tokio::select! {
-            biased;
+        // Wait for the response, cancellation, or timeout
+        let response = if let Some(timeout_ms) = timeout_ms {
+            let timeout_dur = Duration::from_millis(timeout_ms);
+            tokio::select! {
+                biased;
 
-            _ = cancel.cancelled() => {
-                return Err(ToolError::Cancelled);
+                _ = cancel.cancelled() => {
+                    // Clean up pending ask on cancellation
+                    ctx.ask_manager.resolve(&ask_id, AskUserResponse::default()).await.ok();
+                    return Err(ToolError::Cancelled);
+                }
+
+                result = time::timeout(timeout_dur, rx) => {
+                    match result {
+                        Ok(Ok(response)) => response,
+                        Ok(Err(_oneshot_recv_error)) => {
+                            return Err(ToolError::AskError("Ask response channel closed unexpectedly".into()));
+                        }
+                        Err(_elapsed) => {
+                            // Timeout — remove pending ask and return timeout response
+                            ctx.ask_manager.resolve(&ask_id, AskUserResponse::default()).await.ok();
+                            return Ok(ToolResult {
+                                content: vec![ContentBlock::Text {
+                                    text: format!("Ask timed out after {timeout_ms}ms. The user did not respond in time."),
+                                }],
+                                is_error: false,
+                                metadata: Some(serde_json::json!({
+                                    "askId": ask_id,
+                                    "timedOut": true,
+                                })),
+                            });
+                        }
+                    }
+                }
             }
+        } else {
+            tokio::select! {
+                biased;
 
-            result = rx => {
-                match result {
-                    Ok(response) => response,
-                    Err(_oneshot_recv_error) => {
-                        return Err(ToolError::AskError("Ask response channel closed unexpectedly".into()));
+                _ = cancel.cancelled() => {
+                    return Err(ToolError::Cancelled);
+                }
+
+                result = rx => {
+                    match result {
+                        Ok(response) => response,
+                        Err(_oneshot_recv_error) => {
+                            return Err(ToolError::AskError("Ask response channel closed unexpectedly".into()));
+                        }
                     }
                 }
             }
