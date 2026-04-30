@@ -68,7 +68,7 @@ impl AppRuntime {
         let cancel = CancellationToken::new();
         let user_msg = crate::agent::transcript::new_user_message(message);
 
-        let (messages, model, thinking_level, cwd, session_id, max_turns) = {
+        let (model, thinking_level, cwd, session_id, max_turns) = {
             let mut state = self.state.lock().await;
             if state.is_running() {
                 respond(
@@ -88,14 +88,21 @@ impl AppRuntime {
             };
 
             state.current_session.messages.push(user_msg.clone());
+
             (
-                state.current_session.messages.clone(),
                 state.model.clone(),
                 state.thinking_level.clone(),
                 state.cwd.clone(),
                 state.current_session.header.session_id.clone(),
                 state.config.max_turns,
             )
+        };
+
+        // Clone messages outside the lock to minimize critical section time.
+        // The lock is re-acquired only for the clone and immediately released.
+        let messages = {
+            let state = self.state.lock().await;
+            state.current_session.messages.clone()
         };
 
         if let Err(e) = self
@@ -147,41 +154,30 @@ impl AppRuntime {
     }
 
     /// Handle an `abort` command.
+    /// Cancels the active run but does NOT emit lifecycle events — the runner
+    /// handles `agentEnd` emission when it detects cancellation. This avoids
+    /// duplicate `agentEnd` events.
     pub async fn handle_abort(&self, id: Option<String>) {
+        // Cancel raw bash if active
         if let Some(cancel) = self.bash_cancel.lock().unwrap().take() {
             cancel.cancel();
         }
 
-        let (run_id, cancel) = {
+        // Snapshot cancellation info under lock, release quickly
+        let cancel = {
             let state = self.state.lock().await;
             match &state.run_state {
-                RunState::Running { run_id, cancel, .. } => {
-                    (Some(run_id.clone()), Some(cancel.clone()))
-                }
-                RunState::Idle => (None, None),
+                RunState::Running { cancel, .. } => Some(cancel.clone()),
+                RunState::Idle => None,
             }
         };
 
         if let Some(cancel) = cancel {
             cancel.cancel();
-            // Emit abort lifecycle events
-            if let Some(run_id) = &run_id {
-                emit_event(
-                    &self.output_tx,
-                    ServerEvent::Error {
-                        run_id: run_id.clone(),
-                        message: "Run aborted by user".to_string(),
-                    },
-                );
-                emit_event(
-                    &self.output_tx,
-                    ServerEvent::AgentEnd {
-                        run_id: run_id.clone(),
-                        stop_reason: "aborted".to_string(),
-                    },
-                );
-            }
             self.ask_manager.cancel_all().await;
+            // Runner will emit agentEnd when it detects cancellation and exits.
+            // Reset state to Idle — the runner also checks and will not
+            // overwrite if already Idle.
             let mut state = self.state.lock().await;
             state.run_state = RunState::Idle;
         }
