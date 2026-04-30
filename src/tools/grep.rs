@@ -194,11 +194,7 @@ impl Tool for GrepTool {
                 if match_count >= max_matches {
                     break;
                 }
-                results.push(format!(
-                    "{}:\n{}\n",
-                    entry.path().display(),
-                    block
-                ));
+                results.push(format!("{}:\n{}\n", entry.path().display(), block));
                 match_count += 1;
             }
 

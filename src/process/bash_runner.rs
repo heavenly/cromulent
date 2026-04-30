@@ -43,9 +43,7 @@ impl BashRunner {
         output_tx: &mpsc::UnboundedSender<OutputItem>,
         cancel: CancellationToken,
     ) -> io::Result<i32> {
-        let result = self
-            .run_command(command, output_tx, cancel, None)
-            .await;
+        let result = self.run_command(command, output_tx, cancel, None).await;
         result.map(|r| r.exit_code)
     }
 

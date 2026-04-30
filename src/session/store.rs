@@ -109,8 +109,7 @@ impl SessionStore {
         tokio::fs::create_dir_all(&dir).await?;
 
         let header_path = self.header_path(&header.session_id);
-        let header_json =
-            serde_json::to_string(header).map_err(|e| std::io::Error::other(e))?;
+        let header_json = serde_json::to_string(header).map_err(|e| std::io::Error::other(e))?;
         tokio::fs::write(&header_path, header_json).await?;
 
         // Create empty messages file
@@ -177,7 +176,10 @@ impl SessionStore {
     }
 
     /// Read messages from a JSONL file using buffered line-by-line parsing.
-    async fn read_messages_streaming(&self, path: &std::path::Path) -> std::io::Result<Vec<Message>> {
+    async fn read_messages_streaming(
+        &self,
+        path: &std::path::Path,
+    ) -> std::io::Result<Vec<Message>> {
         // Check if file exists / is readable
         if !tokio::fs::metadata(path).await.is_ok() {
             return Ok(Vec::new());
@@ -206,11 +208,16 @@ impl SessionStore {
 
     /// Append a single message to the session transcript.
     pub async fn append_message(&self, session_id: &str, message: &Message) -> std::io::Result<()> {
-        self.append_messages(session_id, std::slice::from_ref(message)).await
+        self.append_messages(session_id, std::slice::from_ref(message))
+            .await
     }
 
     /// Append multiple messages in one write call (fewer file opens).
-    pub async fn append_messages(&self, session_id: &str, messages: &[Message]) -> std::io::Result<()> {
+    pub async fn append_messages(
+        &self,
+        session_id: &str,
+        messages: &[Message],
+    ) -> std::io::Result<()> {
         if messages.is_empty() {
             return Ok(());
         }
@@ -245,8 +252,7 @@ impl SessionStore {
         }
 
         let header_path = self.header_path(&header.session_id);
-        let header_json =
-            serde_json::to_string(header).map_err(|e| std::io::Error::other(e))?;
+        let header_json = serde_json::to_string(header).map_err(|e| std::io::Error::other(e))?;
 
         // Atomic write via temp file
         let tmp_path = header_path.with_extension("json.tmp");
@@ -257,8 +263,7 @@ impl SessionStore {
     /// Legacy header update: rewrite the full single-file JSONL
     async fn update_header_legacy(&self, header: &SessionHeader) -> std::io::Result<()> {
         let path = self.legacy_path(&header.session_id);
-        let header_json =
-            serde_json::to_string(header).map_err(|e| std::io::Error::other(e))?;
+        let header_json = serde_json::to_string(header).map_err(|e| std::io::Error::other(e))?;
 
         let existing = tokio::fs::read_to_string(&path).await.unwrap_or_default();
         let rest: Vec<&str> = existing.lines().skip(1).collect();

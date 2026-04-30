@@ -10,8 +10,8 @@ use crate::agent::transcript;
 use crate::app::output::emit_event;
 use crate::protocol::events::ServerEvent;
 use crate::protocol::types::{
-    ContentBlock, LlmContentBlock, LlmMessage, Message, ModelInfo, ProviderEvent,
-    ProviderRequest, ThinkingLevel, ToolContext, ToolDefinition, UsageInfo,
+    ContentBlock, LlmContentBlock, LlmMessage, Message, ModelInfo, ProviderEvent, ProviderRequest,
+    ThinkingLevel, ToolContext, ToolDefinition, UsageInfo,
 };
 use crate::providers::{LlmProvider, ProviderManager};
 use crate::session::store::SessionStore;
@@ -142,7 +142,14 @@ impl AgentRunner {
             }
 
             match self
-                .run_turn(&ctx, &mut messages, &llm_messages, turn, &stop_reason, &cancel)
+                .run_turn(
+                    &ctx,
+                    &mut messages,
+                    &llm_messages,
+                    turn,
+                    &stop_reason,
+                    &cancel,
+                )
                 .await
             {
                 TurnOutcome::Continue => continue,
