@@ -1,12 +1,15 @@
 use async_trait::async_trait;
-use regex::Regex;
+use globset::{Glob, GlobSet, GlobSetBuilder};
+use ignore::WalkBuilder;
 use tokio_util::sync::CancellationToken;
 
 use crate::protocol::types::{ContentBlock, ToolContext, ToolDefinition, ToolResult};
 use crate::tools::registry::Tool;
 use crate::tools::ToolError;
 
-/// Searches for files by glob pattern using walkdir.
+/// Searches for files by glob pattern using the `ignore` crate.
+/// Respects `.gitignore` rules automatically and uses `globset` for proper
+/// glob matching. Scales well on large repositories.
 pub struct FindTool;
 
 #[async_trait]
@@ -14,7 +17,7 @@ impl Tool for FindTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "find".to_string(),
-            description: "Search for files by glob pattern (e.g. '*.rs', 'src/**/*.ts'). Relative paths are resolved against cwd. Returns matching file paths.".to_string(),
+            description: "Search for files by glob pattern (e.g. '*.rs', 'src/**/*.ts'). Relative paths are resolved against cwd. Returns matching file paths. Respects .gitignore.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -69,28 +72,40 @@ impl Tool for FindTool {
             return Err(ToolError::Cancelled);
         }
 
-        // Convert glob to regex
-        let re = glob_to_regex(pattern_str);
+        // Build a GlobSet from the pattern (handles braces like {rs,toml})
+        let glob_set = build_glob_set(pattern_str)
+            .map_err(|e| ToolError::InvalidArguments(format!("Invalid glob pattern: {e}")))?;
 
-        let walk = walkdir::WalkDir::new(&search_path)
+        // Use ignore::WalkBuilder for gitignore-aware traversal
+        let walker = WalkBuilder::new(&search_path)
             .follow_links(false)
-            .into_iter()
-            .filter_entry(|e| {
-                let fname = e.file_name().to_string_lossy();
-                !fname.starts_with('.') || e.path() == search_path
-            });
+            .hidden(false) // ignore crate handles .gitignore, not dotfile prefixes
+            .git_ignore(true)
+            .git_global(true)
+            .git_exclude(true)
+            .require_git(false) // don't require the dir to be a git repo
+            .sort_by_file_path(std::path::Path::cmp)
+            .build();
 
         let mut results: Vec<String> = Vec::new();
         let mut count = 0;
 
-        for entry in walk {
-            let entry = entry.map_err(|e| ToolError::Other(format!("Walk error: {e}")))?;
-
+        for entry in walker {
             if cancel.is_cancelled() {
                 return Err(ToolError::Cancelled);
             }
 
-            if !entry.file_type().is_file() {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(err) => {
+                    // Skip permission errors etc.
+                    tracing::debug!(error = %err, "Walk entry error");
+                    continue;
+                }
+            };
+
+            // Only match files (not directories)
+            if entry.file_type().map_or(true, |ft| !ft.is_file()) {
                 continue;
             }
 
@@ -98,10 +113,9 @@ impl Tool for FindTool {
                 .path()
                 .strip_prefix(&search_path)
                 .unwrap_or(entry.path());
-            let rel_str = rel_path.to_string_lossy();
 
-            if re.is_match(rel_str.as_ref()) {
-                results.push(rel_str.to_string());
+            if glob_set.is_match(rel_path) {
+                results.push(rel_path.to_string_lossy().to_string());
                 count += 1;
                 if count >= max_results {
                     break;
@@ -146,53 +160,17 @@ impl Tool for FindTool {
     }
 }
 
-/// Convert a glob pattern to a regex pattern.
-/// Supports `*` (within one path component), `**` (cross-component), and `?` (single char).
-fn glob_to_regex(glob: &str) -> Regex {
-    let mut pattern = String::with_capacity(glob.len() + 8);
-    pattern.push('^');
-
-    let chars: Vec<char> = glob.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        match chars[i] {
-            '*' if i + 1 < chars.len() && chars[i + 1] == '*' => {
-                // `**` - match across path separators
-                pattern.push_str(".*");
-                i += 2;
-                // Skip any following `/`
-                while i < chars.len() && chars[i] == '/' {
-                    i += 1;
-                }
-            }
-            '*' => {
-                pattern.push_str("[^/]*");
-                i += 1;
-            }
-            '?' => {
-                pattern.push('.');
-                i += 1;
-            }
-            '.' => {
-                pattern.push_str("\\.");
-                i += 1;
-            }
-            '/' => {
-                pattern.push('/');
-                i += 1;
-            }
-            '\\' | '+' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|' => {
-                pattern.push('\\');
-                pattern.push(chars[i]);
-                i += 1;
-            }
-            c => {
-                pattern.push(c);
-                i += 1;
-            }
+/// Build a GlobSet from a glob pattern string.
+/// Supports standard glob syntax including `{a,b}` brace expansion.
+fn build_glob_set(pattern: &str) -> Result<GlobSet, String> {
+    let mut builder = GlobSetBuilder::new();
+    // Split on whitespace to allow multiple patterns (convenience)
+    for part in pattern.split_whitespace() {
+        if part.is_empty() {
+            continue;
         }
+        let glob = Glob::new(part).map_err(|e| format!("{e}"))?;
+        builder.add(glob);
     }
-    pattern.push('$');
-
-    Regex::new(&pattern).expect("Invalid glob regex conversion")
+    builder.build().map_err(|e| format!("{e}"))
 }

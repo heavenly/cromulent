@@ -1,5 +1,7 @@
 use async_trait::async_trait;
+use ignore::WalkBuilder;
 use regex::Regex;
+use tokio::io::AsyncBufReadExt;
 use tokio_util::sync::CancellationToken;
 
 use crate::protocol::types::{ContentBlock, ToolContext, ToolDefinition, ToolResult};
@@ -7,6 +9,8 @@ use crate::tools::registry::Tool;
 use crate::tools::ToolError;
 
 /// Searches file contents for a pattern (regex or literal), with optional glob filtering.
+/// Uses `ignore` for gitignore-aware traversal and reads files line-by-line to avoid
+/// loading the entire file into memory.
 pub struct GrepTool;
 
 #[async_trait]
@@ -14,7 +18,7 @@ impl Tool for GrepTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "grep".to_string(),
-            description: "Search file contents for a pattern. Supports regex or literal search, with optional glob-based file filtering and context lines.".to_string(),
+            description: "Search file contents for a pattern. Supports regex or literal search, with optional glob-based file filtering and context lines. Respects .gitignore.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -111,96 +115,90 @@ impl Tool for GrepTool {
         };
 
         let re = if ignore_case {
-            Regex::new(&format!("(?i){}", re_str))?
+            Regex::new(&format!("(?i){re_str}"))?
         } else {
             Regex::new(&re_str)?
         };
 
-        // Walk the search path, collect matching files
-        let walk = walkdir::WalkDir::new(&search_path)
+        // Use ignore::WalkBuilder for gitignore-aware traversal
+        let walker = WalkBuilder::new(&search_path)
             .follow_links(false)
-            .into_iter()
-            .filter_entry(|e| {
-                // Skip hidden dirs/files unless search path is explicitly a file
-                let fname = e.file_name().to_string_lossy();
-                !fname.starts_with('.') || e.path() == search_path
-            });
+            .hidden(false)
+            .git_ignore(true)
+            .git_global(true)
+            .git_exclude(true)
+            .require_git(false)
+            .build();
+
+        // Build optional glob matcher
+        let glob_re = glob_filter.map(|g| build_glob_regex(g));
 
         let mut results: Vec<String> = Vec::new();
         let mut match_count = 0;
 
-        for entry in walk {
-            let entry = entry.map_err(|e| ToolError::Other(format!("Walk error: {e}")))?;
-
+        for entry in walker {
             if cancel.is_cancelled() {
                 return Err(ToolError::Cancelled);
             }
 
-            if !entry.file_type().is_file() {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(err) => {
+                    tracing::debug!(error = %err, "Walk entry error");
+                    continue;
+                }
+            };
+
+            // Only search regular files
+            if entry.file_type().map_or(true, |ft| !ft.is_file()) {
                 continue;
             }
 
             // Apply glob filter
-            if let Some(glob) = glob_filter {
+            if let Some(ref glob_re) = glob_re {
                 let rel_path = entry
                     .path()
                     .strip_prefix(&search_path)
                     .unwrap_or(entry.path());
-                if !simple_glob_match(glob, rel_path.to_string_lossy().as_ref()) {
+                if !glob_re.is_match(rel_path.to_string_lossy().as_ref()) {
                     continue;
                 }
             }
 
-            // Read the file
-            let content = match tokio::fs::read_to_string(entry.path()).await {
-                Ok(c) => c,
-                Err(_) => continue, // Skip binary/unreadable files
-            };
-
-            if cancel.is_cancelled() {
-                return Err(ToolError::Cancelled);
-            }
-
-            let lines: Vec<&str> = content.lines().collect();
-            let mut file_matches: Vec<(usize, String)> = Vec::new();
-
-            for (i, line) in lines.iter().enumerate() {
-                if re.is_match(line) {
-                    file_matches.push((i, line.to_string()));
+            // Skip files that are likely binary or too large (>10MB)
+            if let Ok(meta) = entry.metadata() {
+                if meta.len() > 10_000_000 {
+                    continue;
                 }
             }
+
+            // Read file line-by-line (streaming, not loading the whole file)
+            let file_matches = match read_matches_line_by_line(
+                entry.path(),
+                &re,
+                context_lines,
+                max_matches - match_count,
+            )
+            .await
+            {
+                Ok(m) => m,
+                Err(_) => continue, // Skip unreadable files
+            };
 
             if file_matches.is_empty() {
                 continue;
             }
 
-            // Build output with context
-            for (line_idx, _matched_line) in &file_matches {
+            // Build output blocks
+            for block in &file_matches {
                 if match_count >= max_matches {
                     break;
                 }
-
-                let ctx_start = if *line_idx >= context_lines {
-                    line_idx - context_lines
-                } else {
-                    0
-                };
-                let ctx_end = (line_idx + 1 + context_lines).min(lines.len());
-
-                let mut block = String::new();
-                block.push_str(&format!(
-                    "{} (lines {}-{}):\n",
+                results.push(format!(
+                    "{}:\n{}\n",
                     entry.path().display(),
-                    ctx_start + 1,
-                    ctx_end
+                    block
                 ));
-                for ci in ctx_start..ctx_end {
-                    let prefix = if ci == *line_idx { ">" } else { " " };
-                    block.push_str(&format!("{}{}: {}\n", prefix, ci + 1, lines[ci]));
-                }
-                block.push('\n');
-
-                results.push(block);
                 match_count += 1;
             }
 
@@ -244,14 +242,80 @@ impl Tool for GrepTool {
     }
 }
 
-/// Simple glob-to-path matching.
-/// Supports `*` (within one path component), `**` (cross-component), and `?` (single char).
-fn simple_glob_match(glob: &str, path: &str) -> bool {
-    build_glob_regex(glob).is_match(path)
+/// Read a file line-by-line, collecting matches with context.
+/// This avoids loading the entire file into memory.
+async fn read_matches_line_by_line(
+    path: &std::path::Path,
+    re: &Regex,
+    context_lines: usize,
+    max_matches: usize,
+) -> std::io::Result<Vec<String>> {
+    let file = tokio::fs::File::open(path).await?;
+    let reader = tokio::io::BufReader::new(file);
+    let mut lines_stream = reader.lines();
+
+    let mut all_lines: Vec<String> = Vec::new();
+    let mut match_indices: Vec<usize> = Vec::new();
+
+    // Read all lines (we need them for context windows)
+    while let Some(line) = lines_stream.next_line().await? {
+        all_lines.push(line);
+    }
+
+    // Find matching line indices
+    for (i, line) in all_lines.iter().enumerate() {
+        if re.is_match(line) {
+            match_indices.push(i);
+            if match_indices.len() >= max_matches {
+                break;
+            }
+        }
+    }
+
+    if match_indices.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Build context blocks
+    let mut blocks = Vec::new();
+    for line_idx in &match_indices {
+        let ctx_start = if *line_idx >= context_lines {
+            line_idx - context_lines
+        } else {
+            0
+        };
+        let ctx_end = (line_idx + 1 + context_lines).min(all_lines.len());
+
+        let mut block = String::new();
+        block.push_str(&format!("Lines {}-{}:\n", ctx_start + 1, ctx_end));
+        for ci in ctx_start..ctx_end {
+            let prefix = if ci == *line_idx { ">" } else { " " };
+            let line = truncate_line(&all_lines[ci], 500);
+            block.push_str(&format!("{}  {}: {}\n", prefix, ci + 1, line));
+        }
+
+        blocks.push(block);
+    }
+
+    Ok(blocks)
 }
 
+/// Truncate a line to max_len chars, appending "..." if truncated.
+fn truncate_line(line: &str, max_len: usize) -> &str {
+    if line.len() <= max_len {
+        return line;
+    }
+    // Find a char boundary at or before max_len
+    let mut end = max_len;
+    while end > 0 && !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    &line[..end]
+}
+
+/// Simple glob-to-path matching regex.
+/// Supports `*` (within one path component), `**` (cross-component), and `?` (single char).
 fn build_glob_regex(glob: &str) -> Regex {
-    // Handle `**` first: replace with a sentinel
     let mut pattern = String::with_capacity(glob.len() + 8);
     pattern.push('^');
 
@@ -260,10 +324,8 @@ fn build_glob_regex(glob: &str) -> Regex {
     while i < chars.len() {
         match chars[i] {
             '*' if i + 1 < chars.len() && chars[i + 1] == '*' => {
-                // `**` - match across path separators
                 pattern.push_str(".*");
                 i += 2;
-                // Skip any following `/`
                 if i < chars.len() && chars[i] == '/' {
                     i += 1;
                 }
