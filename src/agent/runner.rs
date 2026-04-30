@@ -10,8 +10,8 @@ use crate::agent::transcript;
 use crate::app::output::emit_event;
 use crate::protocol::events::ServerEvent;
 use crate::protocol::types::{
-    ContentBlock, LlmContentBlock, Message, ModelInfo, ProviderEvent, ProviderRequest,
-    ThinkingLevel, ToolContext, ToolDefinition, UsageInfo,
+    ContentBlock, LlmContentBlock, LlmMessage, Message, ModelInfo, ProviderEvent,
+    ProviderRequest, ThinkingLevel, ToolContext, ToolDefinition, UsageInfo,
 };
 use crate::providers::{LlmProvider, ProviderManager};
 use crate::session::store::SessionStore;
@@ -99,7 +99,10 @@ impl AgentRunner {
 
         emit_event_with_agent_start(output_tx, &run_id);
 
-        // --- Turn loop -----------------------------------------------------------
+        // --- Pre-compute LLM-formatted messages once ------------------------------
+        let mut llm_messages = transcript::messages_to_llm(&messages);
+        let mut converted_count = messages.len();
+
         let ctx = RunContext {
             run_id: &run_id,
             system_prompt: &system_prompt,
@@ -131,8 +134,15 @@ impl AgentRunner {
                 },
             );
 
+            // Convert any new messages since last turn (appended by run_turn)
+            if converted_count < messages.len() {
+                let new_llm = transcript::messages_to_llm(&messages[converted_count..]);
+                llm_messages.extend(new_llm);
+                converted_count = messages.len();
+            }
+
             match self
-                .run_turn(&ctx, &mut messages, turn, &stop_reason, &cancel)
+                .run_turn(&ctx, &mut messages, &llm_messages, turn, &stop_reason, &cancel)
                 .await
             {
                 TurnOutcome::Continue => continue,
@@ -157,20 +167,24 @@ impl AgentRunner {
     }
 
     /// Execute one turn of the agent loop.
+    /// `llm_messages` is the pre-computed LLM-form transcript (incrementally built).
     async fn run_turn(
         &self,
         ctx: &RunContext<'_>,
         messages: &mut Vec<Message>,
+        llm_messages: &[LlmMessage],
         turn: u32,
         _stop_reason: &str,
         cancel: &CancellationToken,
     ) -> TurnOutcome {
-        let llm_messages = transcript::messages_to_llm(messages);
+        // Apply transcript compaction to stay within context window limits.
+        // Full transcript is preserved on disk; only the LLM request is compacted.
+        let compact_messages = crate::agent::compaction::compact(llm_messages);
 
         let request = ProviderRequest {
             model: ctx.model.clone(),
             system_prompt: ctx.system_prompt.to_string(),
-            messages: llm_messages,
+            messages: compact_messages,
             tools: (**ctx.tool_defs).clone(),
             thinking_level: ctx.thinking_level.clone(),
         };
