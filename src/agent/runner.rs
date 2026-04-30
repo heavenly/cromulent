@@ -425,6 +425,7 @@ impl AgentRunner {
     }
 
     /// Execute tool calls and append tool result messages.
+    /// Tool results are batched into a single persistence write.
     async fn execute_tool_calls(
         &self,
         ctx: &RunContext<'_>,
@@ -432,6 +433,8 @@ impl AgentRunner {
         messages: &mut Vec<Message>,
         cancel: &CancellationToken,
     ) {
+        let mut tool_msgs: Vec<Message> = Vec::with_capacity(tool_calls.len());
+
         for tc in tool_calls {
             if let LlmContentBlock::ToolCall {
                 id,
@@ -506,15 +509,20 @@ impl AgentRunner {
                     is_error,
                     result_metadata,
                 );
-                if let Err(e) = ctx
-                    .session_store
-                    .append_message(ctx.session_id, &tool_msg)
-                    .await
-                {
-                    tracing::error!("Failed to persist tool result: {e}");
-                }
-                messages.push(tool_msg);
+                tool_msgs.push(tool_msg);
             }
+        }
+
+        // Batch-persist all tool results in one write
+        if !tool_msgs.is_empty() {
+            if let Err(e) = ctx
+                .session_store
+                .append_messages(ctx.session_id, &tool_msgs)
+                .await
+            {
+                tracing::error!("Failed to persist tool results: {e}");
+            }
+            messages.extend(tool_msgs);
         }
     }
 }

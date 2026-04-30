@@ -584,7 +584,7 @@ fn test_session_header_serde() {
     let back: SessionHeader = serde_json::from_str(&json).unwrap();
     assert_eq!(back.session_id, "ses_test");
     assert_eq!(back.type_field, "session_header");
-    assert_eq!(back.schema_version, 1);
+    assert_eq!(back.schema_version, 2);
     assert_eq!(back.cwd, "/home/user/project");
     assert_eq!(back.model.id, "gpt-5-codex");
 }
