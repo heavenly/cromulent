@@ -2,7 +2,16 @@ pub mod ask_user;
 pub mod bash;
 pub mod find;
 pub mod grep;
-pub mod hashline;
+pub mod hashline {
+    pub mod atomic_write;
+    pub mod diff;
+    pub mod edit;
+    pub mod file_kind;
+    pub mod hash;
+    pub mod parse;
+    pub mod queue;
+    pub mod read;
+}
 pub mod read;
 pub mod registry;
 pub mod write;

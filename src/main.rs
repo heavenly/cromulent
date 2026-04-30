@@ -4,16 +4,56 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tracing_subscriber::EnvFilter;
 
-mod agent;
-mod app;
-mod auth;
-mod process;
-mod protocol;
+mod agent {
+    pub mod compaction;
+    pub mod prompt;
+    pub mod runner;
+    pub mod transcript;
+}
+
+mod app {
+    pub mod output;
+    pub mod router;
+    pub mod runtime;
+    pub mod state;
+}
+
+mod auth {
+    pub mod codex;
+    pub mod config;
+}
+
+mod process {
+    pub mod bash_runner;
+}
+
+mod protocol {
+    pub mod commands;
+    pub mod events;
+    pub mod responses;
+    pub mod types;
+}
+
 mod providers;
-mod session;
+
+mod session {
+    pub mod export;
+    pub mod fork;
+    pub mod store;
+}
+
 mod tools;
-mod transport;
-mod util;
+
+mod transport {
+    pub mod reader;
+    pub mod writer;
+}
+
+mod util {
+    pub mod fs;
+    pub mod ids;
+    pub mod time;
+}
 
 /// Headless coding agent daemon — JSONL protocol over stdin/stdout.
 #[derive(Parser)]
